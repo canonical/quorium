@@ -1,0 +1,161 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p quorium --lib --no-default-features -- -D warnings
+      - run: cargo clippy -p quorium --lib -- -D warnings
+      - run: cargo clippy -p quorium -p quorium-net --all-targets --features quorium/mdns,quorium/quic,quorium/uuid,quorium/fjall,quorium-net/quic -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --release
+      - run: cargo test -p quorium --release --features mdns,quic,uuid,testing,fjall --test discovery --test node_tcp --test entities
+      - run: cargo test -p quorium-net --release --features quic
+      - run: cargo test -p quorium-store --release --features fjall
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  semver:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-semver-checks
+      - run: cargo semver-checks --workspace --exclude xtask --exclude quorium-macros --baseline-rev origin/${{ github.base_ref }}
+
+  protected-paths:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: >
+          cargo xtask protected-paths --base origin/${{ github.base_ref }}
+          ${{ contains(github.event.pull_request.labels.*.name, 'reviewer-approved') && '--reviewer-approved' || '' }}
+          ${{ contains(github.event.pull_request.labels.*.name, 'owner-approved') && '--owner-approved' || '' }}
+
+  simulation-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask gate --thresholds gates/phase1.toml --seeds 10000 --out gate-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-report
+          path: gate-report.json
+
+  mutants:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-mutants
+      - run: git diff origin/${{ github.base_ref }}... -- crates/quorium-core > core.diff
+      - run: |
+          if [ -s core.diff ]; then
+            cargo mutants --in-diff core.diff --package quorium-core --test-package quorium-core --test-package quorium-sim --profile release --no-shuffle --timeout 300 || true
+            cargo xtask mutation-score --outcomes mutants.out/outcomes.json --thresholds gates/mutation.toml
+          fi
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --workspace --exclude xtask --release --fail-under-lines "$(grep -Po '(?<=min_line_coverage = )[0-9.]+' gates/coverage.toml)"
+
+  tla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: |
+          curl -sSL -o tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  tla2tools.jar" | sha256sum -c -
+      - working-directory: spec
+        run: |
+          java -Xmx6g -cp ../tla2tools.jar tlc2.TLC -deadlock -workers auto -config MCSafety.cfg MCLadder.tla
+          java -Xmx6g -cp ../tla2tools.jar tlc2.TLC -deadlock -workers auto -config MCLiveness.cfg MCLadder.tla
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -p quorium-sim --test conformance
+        env:
+          QUORIUM_TLA_JAR: ${{ github.workspace }}/tla2tools.jar
+          QUORIUM_CONFORMANCE_SEEDS: "20"
+
+  performance:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          cargo bench -p quorium-core -p quorium-store -p quorium-net --bench apply --bench wal --bench codec -- --save-baseline main
+          git checkout ${{ github.event.pull_request.head.sha }}
+          cargo bench -p quorium-core -p quorium-store -p quorium-net --bench apply --bench wal --bench codec -- --baseline main
+          cargo xtask perf-compare --criterion target/criterion --thresholds gates/perf.toml

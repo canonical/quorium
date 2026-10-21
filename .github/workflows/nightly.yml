@@ -1,0 +1,99 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  seeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask sweep --from $(( ${{ matrix.shard }} * 250000 + 1000000000 )) --seeds 250000
+
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [vote, power]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask sweep --mode ${{ matrix.mode }} --from 2000000000 --seeds 200000
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wal_open, message_decode, snapshot_decode]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-fuzz
+      - working-directory: fuzz
+        run: cargo fuzz run -O ${{ matrix.target }} -- -max_total_time=3000 -rss_limit_mb=4096
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts
+
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          curl -sSL -o tla2tools.jar https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  tla2tools.jar" | sha256sum -c -
+      - run: cargo test --release -p quorium-sim --test conformance
+        env:
+          QUORIUM_TLA_JAR: ${{ github.workspace }}/tla2tools.jar
+          QUORIUM_CONFORMANCE_SEEDS: "1000"
+
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-mutants
+      - run: cargo mutants --shard ${{ matrix.shard }}/8 --package quorium-core --test-package quorium-core --test-package quorium-sim --profile release --no-shuffle --timeout 300 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: mutants.out/outcomes.json
+
+  mutation-score:
+    needs: mutants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mutants-*
+      - run: cargo xtask mutation-score --outcomes "$(ls mutants-*/outcomes.json | paste -sd, -)" --thresholds gates/mutation.toml

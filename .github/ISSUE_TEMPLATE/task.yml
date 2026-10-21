@@ -1,0 +1,38 @@
+name: Agent task
+description: One issue, one pull request. Names its acceptance tests and simulator scenarios.
+labels: [task]
+body:
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options: ["0 Foundations", "1 Consensus on openraft", "2 Storage, network, cluster", "3 Developer API", "4 Scale-out", "5 Escrow, singletons, watch", "6 Hardening"]
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: The behaviour to build, in one paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance tests
+      description: The tests the pull request must add. Written before the code, by a separate agent when they judge safety.
+    validations:
+      required: true
+  - type: textarea
+    id: scenarios
+    attributes:
+      label: Simulator scenarios
+      description: Fault modes and seed counts the change must pass (at least 10,000 seeds).
+    validations:
+      required: true
+  - type: checkboxes
+    id: protected
+    attributes:
+      label: Protected paths
+      options:
+        - label: This issue changes a protected path (checkers, spec, gates, planted controls, CI) and nothing else

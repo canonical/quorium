@@ -1,0 +1,12 @@
+*                                         @quorium/owner
+/crates/quorium-sim/src/checkers.rs       @quorium/owner
+/crates/quorium-sim/src/checkers/         @quorium/owner
+/crates/quorium-sim/tests/checkers.rs     @quorium/owner
+/crates/quorium-sim/tests/swarm.rs        @quorium/owner
+/crates/quorium-sim/tests/regressions.rs  @quorium/owner
+/spec/                                    @quorium/owner
+/gates/                                   @quorium/owner
+/.github/                                 @quorium/owner
+/xtask/                                   @quorium/owner
+/crates/quorium-store/tests/fixtures/     @quorium/owner
+/crates/quorium-store/tests/fixtures.rs    @quorium/owner
