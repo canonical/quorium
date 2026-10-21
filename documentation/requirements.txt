@@ -1,0 +1,10 @@
+sphinx~=8.2
+ulwazi~=1.0
+myst-parser~=5.1
+sphinx-design~=0.7
+sphinx-copybutton~=0.5
+sphinxcontrib-mermaid~=2.1
+sphinx-sitemap~=2.9
+sphinxext-opengraph~=0.13
+sphinx-autobuild==2025.8.25
+codespell~=2.4
