@@ -207,6 +207,25 @@ fn perf_compare(args: &[String]) -> ExitCode {
     }
 }
 
+fn docs_check(args: &[String]) -> ExitCode {
+    let docs = arg(args, "--docs").unwrap_or_else(|| "documentation".into());
+    let sources = ["examples/guestbook", "examples/doc-snippets"].map(std::path::PathBuf::from);
+    match xtask::docs::check(std::path::Path::new(&docs), &sources) {
+        Ok(problems) if problems.is_empty() => ExitCode::SUCCESS,
+        Ok(problems) => {
+            for problem in &problems {
+                eprintln!("{problem}");
+            }
+            eprintln!("{} documentation lines are not in the compiled examples", problems.len());
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("docs check failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
@@ -215,8 +234,11 @@ fn main() -> ExitCode {
         Some("sweep") => sweep_command(&args),
         Some("mutation-score") => mutation_score(&args),
         Some("perf-compare") => perf_compare(&args),
+        Some("docs-check") => docs_check(&args),
         _ => {
-            eprintln!("usage: cargo xtask <protected-paths|gate|sweep|mutation-score|perf-compare> [options]");
+            eprintln!(
+                "usage: cargo xtask <protected-paths|gate|sweep|mutation-score|perf-compare|docs-check> [options]"
+            );
             ExitCode::FAILURE
         }
     }
