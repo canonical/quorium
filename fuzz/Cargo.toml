@@ -1,0 +1,36 @@
+[package]
+name = "quorium-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+quorium-core = { path = "../crates/quorium-core" }
+quorium-net = { path = "../crates/quorium-net" }
+quorium-store = { path = "../crates/quorium-store" }
+openraft-rt-tokio = "=0.10.0-alpha.37"
+
+[[bin]]
+name = "wal_open"
+path = "fuzz_targets/wal_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message_decode"
+path = "fuzz_targets/message_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "snapshot_decode"
+path = "fuzz_targets/snapshot_decode.rs"
+test = false
+doc = false
+bench = false
