@@ -1,0 +1,18 @@
+[package]
+name = "guestbook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+quorium = { path = "../../crates/quorium" }
+serde.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+quorium = { path = "../../crates/quorium", features = ["testing"] }
+
+[lints]
+workspace = true
