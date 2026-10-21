@@ -1,0 +1,27 @@
+[package]
+name = "quorium-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic simulation, fault injection and checkers for testing Quorium"
+readme = "README.md"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+quorium-core.workspace = true
+quorium-store.workspace = true
+openraft.workspace = true
+openraft-rt.workspace = true
+openraft-rt-tokio.workspace = true
+rand.workspace = true
+pin-project-lite.workspace = true
+tempfile = "3"
+
+[dev-dependencies]
+
+[lints]
+workspace = true
