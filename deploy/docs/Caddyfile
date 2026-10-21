@@ -1,0 +1,26 @@
+{$DOCS_DOMAIN} {
+	root * /srv/quorium-docs
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	@static path_regexp ^/[^/]+/_static/
+	header @static Cache-Control "public, max-age=86400"
+
+	redir / /latest/ 302
+
+	file_server
+
+	handle_errors {
+		@missing expression {err.status_code} == 404
+		handle @missing {
+			rewrite * /latest/404/index.html
+			file_server
+		}
+	}
+}
