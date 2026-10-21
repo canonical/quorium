@@ -1,0 +1,16 @@
+[package]
+name = "doc-snippets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+quorium = { path = "../../crates/quorium", features = ["fjall"] }
+serde.workspace = true
+tokio.workspace = true
+postcard.workspace = true
+
+[lints]
+workspace = true
