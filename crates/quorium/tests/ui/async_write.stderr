@@ -1,0 +1,5 @@
+error: write methods (&mut self) must be synchronous: they run inside the replicated apply loop, where every replica must reach the same result without waiting on anything
+ --> tests/ui/async_write.rs:8:5
+  |
+8 |     async fn deposit(&mut self, amount: u64) {
+  |     ^^^^^

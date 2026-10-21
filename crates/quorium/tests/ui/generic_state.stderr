@@ -1,0 +1,5 @@
+error: #[derive(quorium::State)] does not support generic types: every stored type needs one fixed NAME and encoding
+ --> tests/ui/generic_state.rs:2:15
+  |
+2 | struct Wrapper<T> {
+  |               ^

@@ -1,0 +1,5 @@
+error: write method `off` has ID 1 which is already used by `on`; pin a different #[quorium(id = N)]
+  --> tests/ui/duplicate_ids.rs:14:8
+   |
+14 |     fn off(&mut self) {
+   |        ^^^

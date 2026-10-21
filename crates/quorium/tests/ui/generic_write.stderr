@@ -1,0 +1,5 @@
+error: write methods (&mut self) cannot be generic: each write is dispatched by a fixed method ID with one argument encoding
+ --> tests/ui/generic_write.rs:8:11
+  |
+8 |     fn put<T: serde::Serialize>(&mut self, _item: T) {
+  |           ^

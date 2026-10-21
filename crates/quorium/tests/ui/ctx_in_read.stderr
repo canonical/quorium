@@ -1,0 +1,5 @@
+error: ctx: &Ctx is only available to write methods (&mut self); reads run locally and have no log index or replicated clock
+ --> tests/ui/ctx_in_read.rs:8:25
+  |
+8 |     fn peek(&self, ctx: &quorium::Ctx) -> u64 {
+  |                         ^

@@ -1,0 +1,5 @@
+error: unknown #[state] option; expected key, name, version, migrate or locality
+ --> tests/ui/unknown_option.rs:2:9
+  |
+2 | #[state(colour = "blue")]
+  |         ^^^^^^
