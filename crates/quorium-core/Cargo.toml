@@ -1,0 +1,32 @@
+[package]
+name = "quorium-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core state machine, Ladder election controller and entity registry for Quorium"
+readme = "README.md"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+openraft.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+tracing.workspace = true
+postcard.workspace = true
+linkme.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+linkme.workspace = true
+openraft-rt-tokio.workspace = true
+
+[[bench]]
+name = "apply"
+harness = false
+
+[lints]
+workspace = true
