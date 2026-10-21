@@ -1,0 +1,4 @@
+min_seeds = 10000
+max_violations = 0
+failover_p99_ms = 500
+planted_controls = ["apply", "vote", "fsync", "restore", "escrow"]
