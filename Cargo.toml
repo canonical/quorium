@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask", "examples/*"]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/canonical/quorium"
+homepage = "https://github.com/canonical/quorium"
+keywords = ["raft", "consensus", "distributed", "replication", "embedded"]
+categories = ["database-implementations", "concurrency", "network-programming"]
+
+[workspace.dependencies]
+quorium-core = { path = "crates/quorium-core", version = "=0.1.0-alpha.1" }
+quorium-sim = { path = "crates/quorium-sim", version = "=0.1.0-alpha.1" }
+quorium-store = { path = "crates/quorium-store", version = "=0.1.0-alpha.1" }
+quorium-net = { path = "crates/quorium-net", version = "=0.1.0-alpha.1" }
+quorium-macros = { path = "crates/quorium-macros", version = "=0.1.0-alpha.1" }
+openraft = { version = "=0.10.0-alpha.37", default-features = false, features = ["serde", "type-alias", "metrics-logids"] }
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+proptest = "1"
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+futures = "0.3"
+crc32fast = "1"
+linkme = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rcgen = "0.14"
+openraft-rt = "=0.10.0-alpha.37"
+openraft-rt-tokio = "=0.10.0-alpha.37"
+tokio = { version = "1.47", features = ["net", "io-util", "rt", "rt-multi-thread", "sync", "time", "macros"] }
+rand = "0.10"
+pin-project-lite = "0.2"
+redb = "2.6"
+fjall = { version = "2.11", default-features = false }
+tracing = "0.1"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
