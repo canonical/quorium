@@ -2,8 +2,7 @@
 
 An embedded Rust library: every service instance is a cluster node, shared state is plain Rust types, and failover needs no human. Consensus safety comes from [openraft](https://github.com/databendlabs/openraft) (pinned to `=0.10.0-alpha.37`); Quorium adds the Ladder controller, which decides when nodes stand for election.
 
-- User guide: [docs/GUIDE.md](docs/GUIDE.md)
-- Operations: [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- Documentation: [documentation/](documentation/index.md): tutorials, how-to guides, reference and explanation
 - Spec conformance: [docs/CONFORMANCE.md](docs/CONFORMANCE.md)
 - Emulated multi-region rig: [docs/RIG.md](docs/RIG.md)
 - Releasing to crates.io: [docs/RELEASING.md](docs/RELEASING.md)

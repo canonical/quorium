@@ -63,8 +63,10 @@ assert_eq!(cart.total().await?, 1);
 
 ## Documentation
 
-- [User guide](https://github.com/canonical/quorium/blob/main/docs/GUIDE.md)
-- [Operations](https://github.com/canonical/quorium/blob/main/docs/OPERATIONS.md)
+- [Tutorials](https://github.com/canonical/quorium/blob/main/documentation/tutorials/index.md)
+- [How-to guides](https://github.com/canonical/quorium/blob/main/documentation/how-to/index.md)
+- [Reference](https://github.com/canonical/quorium/blob/main/documentation/reference/index.md)
+- [Explanation](https://github.com/canonical/quorium/blob/main/documentation/explanation/index.md)
 
 ## License
 
