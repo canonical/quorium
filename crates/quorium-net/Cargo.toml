@@ -1,0 +1,44 @@
+[package]
+name = "quorium-net"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Versioned wire codec and QUIC/TCP transports with mutual TLS for Quorium"
+readme = "README.md"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_bytes.workspace = true
+postcard.workspace = true
+tokio.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+futures.workspace = true
+rcgen.workspace = true
+quorium-core.workspace = true
+openraft.workspace = true
+openraft-rt-tokio.workspace = true
+quinn = { workspace = true, optional = true }
+
+[features]
+quic = ["dep:quinn"]
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "codec"
+harness = false
+
+[lints]
+workspace = true
+
+[[example]]
+name = "transport_compare"
+required-features = ["quic"]
