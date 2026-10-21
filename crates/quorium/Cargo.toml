@@ -1,0 +1,52 @@
+[package]
+name = "quorium"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Embedded Raft-replicated state for Rust services: every instance is a cluster node"
+readme = "README.md"
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude = ["*.profraw"]
+
+[features]
+default = ["quic"]
+quic = ["quorium-net/quic"]
+mdns = ["dep:mdns-sd"]
+uuid = ["dep:uuid"]
+fjall = ["quorium-store/fjall"]
+testing = ["dep:tempfile", "dep:quorium-sim"]
+
+[dependencies]
+quorium-core.workspace = true
+quorium-store.workspace = true
+quorium-net.workspace = true
+quorium-macros.workspace = true
+openraft.workspace = true
+openraft-rt-tokio.workspace = true
+tokio.workspace = true
+rand.workspace = true
+futures.workspace = true
+serde.workspace = true
+postcard.workspace = true
+linkme.workspace = true
+crc32fast.workspace = true
+tracing.workspace = true
+tempfile = { version = "3", optional = true }
+quorium-sim = { workspace = true, optional = true }
+uuid = { version = "1", optional = true, default-features = false, features = ["serde"] }
+mdns-sd = { version = "0.21", optional = true, default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+quorium-core.workspace = true
+quorium = { path = ".", features = ["testing"] }
+trybuild = "1"
+uuid = { version = "1", default-features = false, features = ["serde"] }
+quorium-sim.workspace = true
+
+[lints]
+workspace = true
