@@ -833,12 +833,14 @@ dependencies = [
 
 [[package]]
 name = "quorium-core"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "linkme",
  "openraft",
  "postcard",
  "serde",
+ "serde_bytes",
+ "tracing",
 ]
 
 [[package]]
@@ -854,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-net"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "futures",
  "openraft",
@@ -863,22 +865,24 @@ dependencies = [
  "quorium-core",
  "rcgen",
  "rustls",
- "rustls-pemfile",
  "serde",
+ "serde_bytes",
  "tokio",
  "tokio-rustls",
 ]
 
 [[package]]
 name = "quorium-store"
-version = "0.0.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "crc32fast",
  "futures",
  "openraft",
  "postcard",
  "quorium-core",
+ "redb",
  "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -950,6 +954,15 @@ dependencies = [
  "time",
  "x509-parser",
  "yasna",
+]
+
+[[package]]
+name = "redb"
+version = "2.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d64e07496d293ad8ed401c4d193d5b9f0f97671fbd5bf21d691a0c7d2c53dc8"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1029,15 +1042,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
 name = "rustls-pki-types"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1077,6 +1081,16 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -1235,9 +1249,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.54.0"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c168a474b95bfecfe908a65d4bdffc523144b649a74c09c286afb35d53e0bc"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "bytes",
  "libc",
