@@ -83,6 +83,26 @@ impl<RT: AsyncRuntime> Ladder<RT> {
         self.shared.lock().unwrap().stats
     }
 
+    pub fn stand_aside(&self, duration: Duration) {
+        let until = self.now() + duration;
+        self.shared.lock().unwrap().controller.stand_aside(until);
+    }
+
+    pub fn standing_aside(&self) -> bool {
+        let now = self.now();
+        self.shared.lock().unwrap().controller.standing_aside(now)
+    }
+
+    pub fn observe_stand_aside(&self, peer: NodeId, duration: Duration) {
+        let until = self.now() + duration;
+        self.shared.lock().unwrap().controller.on_peer_stand_aside(peer, until);
+    }
+
+    pub fn is_candidate(&self, id: NodeId) -> bool {
+        let now = self.now();
+        self.shared.lock().unwrap().controller.is_candidate(id, now)
+    }
+
     pub fn voters_live(&self) -> bool {
         self.shared.lock().unwrap().controller.voters_live()
     }

@@ -516,3 +516,30 @@ fn the_election_base_is_exposed_with_its_stretch() {
     c.on_leader_contact(1, ms(100));
     assert_eq!(c.election_base(), ms(200));
 }
+
+#[test]
+fn a_node_standing_aside_never_campaigns() {
+    let mut c = controller(2);
+    c.on_leader_contact(1, ms(0));
+    c.stand_aside(ms(1_000));
+    assert!(c.standing_aside(ms(999)));
+    assert!(!c.is_candidate(2, ms(500)));
+    assert_eq!(c.poll(ms(150)), None);
+    assert_eq!(c.poll(ms(999)), None);
+    c.on_peer_log(3, pos(1, 9));
+    assert_eq!(c.on_pre_vote(3, pos(1, 9), ms(900)), None);
+    assert_eq!(c.poll(ms(1_000)), Some(Action::Elect { pre_vote: true }));
+}
+
+#[test]
+fn peers_standing_aside_do_not_hold_a_rank() {
+    let mut c = controller(4);
+    c.on_leader_contact(1, ms(0));
+    assert_eq!(c.rank(), 2);
+    c.on_peer_stand_aside(2, ms(500));
+    assert!(!c.is_candidate(2, ms(100)));
+    assert_eq!(c.rank(), 1);
+    c.on_peer_seen(3, ms(500));
+    assert!(c.is_candidate(2, ms(500)));
+    assert_eq!(c.rank(), 2);
+}

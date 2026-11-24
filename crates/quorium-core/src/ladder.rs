@@ -65,8 +65,12 @@ impl LadderConfig {
 
 pub const TRANSFER_IDLE: Duration = Duration::from_secs(2);
 
+pub fn target_caught_up(target_matched: Option<u64>, leader_last: Option<u64>) -> bool {
+    target_matched == leader_last
+}
+
 pub fn transfer_ready(since_last_write: Duration, target_matched: Option<u64>, leader_last: Option<u64>) -> bool {
-    since_last_write >= TRANSFER_IDLE && target_matched == leader_last
+    since_last_write >= TRANSFER_IDLE && target_caught_up(target_matched, leader_last)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +90,7 @@ enum Phase {
 struct PeerView {
     log: LogPosition,
     seen: Option<Duration>,
+    aside_until: Option<Duration>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +111,7 @@ pub struct Controller {
     gaps: std::collections::VecDeque<Duration>,
     last_contact: Option<(NodeId, Duration)>,
     sync_latency: Duration,
+    aside_until: Option<Duration>,
 }
 
 const GAP_SAMPLES: usize = 16;
@@ -137,6 +143,7 @@ impl Controller {
             gaps: std::collections::VecDeque::new(),
             last_contact: None,
             sync_latency: Duration::ZERO,
+            aside_until: None,
         }
     }
 
@@ -160,6 +167,25 @@ impl Controller {
 
     pub fn set_quiesced(&mut self, quiesced: bool) {
         self.quiesced = quiesced;
+    }
+
+    pub fn stand_aside(&mut self, until: Duration) {
+        self.aside_until = Some(until);
+    }
+
+    pub fn standing_aside(&self, now: Duration) -> bool {
+        self.aside_until.is_some_and(|until| now < until)
+    }
+
+    pub fn on_peer_stand_aside(&mut self, peer: NodeId, until: Duration) {
+        self.peers.entry(peer).or_default().aside_until = Some(until);
+    }
+
+    pub fn is_candidate(&self, id: NodeId, now: Duration) -> bool {
+        if id == self.me {
+            return !self.standing_aside(now);
+        }
+        self.peers.get(&id).and_then(|v| v.aside_until).is_none_or(|until| now >= until)
     }
 
     pub fn on_local_log(&mut self, log: LogPosition) {
@@ -303,6 +329,7 @@ impl Controller {
         self.on_peer_seen(candidate, now);
         match self.phase {
             Phase::Leading | Phase::Campaigning { .. } => None,
+            _ if self.standing_aside(now) => None,
             _ if self.local_log > log && self.leader_quiet(now) => {
                 self.begin_campaign(now);
                 Some(Action::Elect { pre_vote: true })
@@ -334,7 +361,9 @@ impl Controller {
         let mine = key(self.me, self.local_log);
         self.members
             .iter()
-            .filter(|m| m.id != self.me && Some(m.id) != self.leader && self.is_live(m.id))
+            .filter(|m| {
+                m.id != self.me && Some(m.id) != self.leader && self.is_live(m.id) && self.is_candidate(m.id, self.now)
+            })
             .filter(|m| key(m.id, self.peer_log(m.id)) < mine)
             .count()
     }
@@ -361,6 +390,9 @@ impl Controller {
 
     pub fn poll(&mut self, now: Duration) -> Option<Action> {
         self.advance(now);
+        if self.standing_aside(now) {
+            return None;
+        }
         let deadline = self.next_deadline()?;
         if now < deadline {
             return None;
