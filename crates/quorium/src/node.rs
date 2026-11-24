@@ -90,6 +90,7 @@ pub struct Stats {
     pub leader_changes: u64,
     pub rpc_failures: u64,
     pub leaderless: Duration,
+    pub snapshots_sent: BTreeMap<NodeId, u64>,
 }
 
 pub const LARGE_ENTITY_BYTES: usize = 1 << 20;
@@ -176,6 +177,9 @@ impl Quorium {
         if let Some(n) = b.checkpoint_every {
             config.snapshot_policy = openraft::SnapshotPolicy::LogsSinceLast(n);
             config.max_in_snapshot_log_to_keep = config.max_in_snapshot_log_to_keep.min(n);
+        }
+        if let Some(entries) = b.log_retention {
+            config.max_in_snapshot_log_to_keep = entries;
         }
         let config = Arc::new(config);
         let watches: Watches = Arc::default();
@@ -639,6 +643,7 @@ impl Quorium {
             leader_changes: shard_stats.iter().map(|s| s.leader_changes).sum(),
             rpc_failures: self.inner.network.rpc_failures(),
             leaderless: shard_stats.iter().map(|s| s.leaderless).sum(),
+            snapshots_sent: self.inner.network.snapshots_sent(),
         }
     }
 

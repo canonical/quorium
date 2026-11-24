@@ -69,6 +69,10 @@ impl Quorium {
                     writeln!(out, "quorium_shard_quorum_contact_age_seconds{{shard=\"{s}\"}} {}", age.as_secs_f64());
             }
         }
+        family(&mut out, "quorium_shard_purged_index", "gauge", "Log index up to which the shard's log was purged.");
+        for (s, m, _) in &rows {
+            let _ = writeln!(out, "quorium_shard_purged_index{{shard=\"{s}\"}} {}", m.purged.map_or(0, |l| l.index));
+        }
         family(&mut out, "quorium_shard_quiesced", "gauge", "1 when the shard is quiesced on this leader.");
         for (s, _, q) in &rows {
             let _ = writeln!(out, "quorium_shard_quiesced{{shard=\"{s}\"}} {}", u8::from(*q));
@@ -84,6 +88,10 @@ impl Quorium {
         let _ = writeln!(out, "quorium_rpc_failures_total {}", stats.rpc_failures);
         family(&mut out, "quorium_leaderless_seconds_total", "counter", "Shard time spent without a known leader.");
         let _ = writeln!(out, "quorium_leaderless_seconds_total {}", stats.leaderless.as_secs_f64());
+        family(&mut out, "quorium_snapshots_sent_total", "counter", "Full state snapshots sent to each peer.");
+        for (peer, sent) in &stats.snapshots_sent {
+            let _ = writeln!(out, "quorium_snapshots_sent_total{{peer=\"{peer}\"}} {sent}");
+        }
         family(&mut out, "quorium_pings_received_total", "counter", "Host liveness pings received.");
         let _ = writeln!(out, "quorium_pings_received_total {}", stats.pings_received);
         let (fsyncs, bytes) = self.wal_stats();

@@ -75,6 +75,7 @@ pub struct Builder {
     pub(crate) single_node: bool,
     pub(crate) timing: TimingConfig,
     pub(crate) checkpoint_every: Option<u64>,
+    pub(crate) log_retention: Option<u64>,
     pub(crate) transport: crate::Transport,
     pub(crate) state_backend: StateBackend,
     pub(crate) ping: Duration,
@@ -102,6 +103,7 @@ impl Default for Builder {
             single_node: false,
             timing: TimingConfig::default(),
             checkpoint_every: None,
+            log_retention: None,
             transport: crate::Transport::default(),
             state_backend: StateBackend::default(),
             ping: Duration::from_millis(100),
@@ -240,6 +242,16 @@ impl Builder {
 
     pub fn rpc_timeout(mut self, minimum: Duration) -> Self {
         self.timing.rpc_timeout = minimum;
+        self
+    }
+
+    pub fn snapshot_timeout(mut self, timeout: Duration) -> Self {
+        self.timing.snapshot_timeout = timeout;
+        self
+    }
+
+    pub fn log_retention(mut self, entries: u64) -> Self {
+        self.log_retention = Some(entries);
         self
     }
 
