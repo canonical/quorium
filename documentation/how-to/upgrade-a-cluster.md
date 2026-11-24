@@ -4,11 +4,12 @@ Upgrade by replacing the binary on one node at a time. The cluster stays availab
 
 ## Steps
 
-1. Check that every node is healthy: each shard has a leader, and `quorium_shard_last_applied` is close across nodes.
+1. Check that every node is healthy: `node.is_stable(window)` is `true`, and `quorium_shard_last_applied` is close across nodes.
 2. Optionally call `node.checkpoint().await` on the node you are about to stop. Restart is faster when little log needs replaying.
-3. Stop the node and start it with the new binary, on the same data directory.
-4. Wait until it has caught up: its `quorium_shard_last_applied` matches the others.
-5. Repeat for the next node.
+3. Call `node.shutdown_gracefully(deadline).await`, so leadership moves away before the node stops. See [Restart a node for maintenance](restart-a-node-for-maintenance.md).
+4. Start the node with the new binary, on the same data directory.
+5. Wait until it has caught up: its `quorium_shard_last_applied` matches the others.
+6. Repeat for the next node.
 
 Never stop a majority of voters at once. With 3 voters, upgrade one at a time; with 5, at most two.
 
@@ -26,5 +27,6 @@ Rolling back is the same procedure with the old binary. It works only if no new 
 
 ## Related
 
+- [Restart a node for maintenance](restart-a-node-for-maintenance.md)
 - [Change a state type safely](change-a-state-type.md)
 - [Stored formats](../reference/data-directory.md#stored-formats)

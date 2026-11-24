@@ -22,6 +22,7 @@ Each guide solves one task in a service that already uses Quorium. They assume y
 ## Operate
 
 - [Upgrade a cluster](upgrade-a-cluster.md)
+- [Restart a node for maintenance](restart-a-node-for-maintenance.md)
 - [Replace a node](replace-a-node.md)
 - [Back up and restore](back-up-and-restore.md)
 - [Monitor a cluster](monitor-a-cluster.md)
@@ -41,6 +42,7 @@ change-a-state-type
 spread-load-with-shards
 use-a-remote-client
 upgrade-a-cluster
+restart-a-node-for-maintenance
 replace-a-node
 back-up-and-restore
 monitor-a-cluster
