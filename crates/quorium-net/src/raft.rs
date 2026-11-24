@@ -16,6 +16,7 @@ use openraft::raft::{
 };
 use openraft::storage::Snapshot;
 use openraft_rt_tokio::TokioRuntime;
+use quorium_core::events::{EventSink, LeadershipEvent};
 use quorium_core::kv::{Command, Reply};
 use quorium_core::ladder::LogPosition;
 use quorium_core::types::{CommittedLeaderId, KvVote, NodeId, Types};
@@ -224,6 +225,33 @@ pub struct TcpNetwork {
     by_addr: Arc<Mutex<HashMap<String, Arc<Peer>>>>,
     appends: Arc<std::sync::atomic::AtomicU64>,
     rpc_floor: Duration,
+    reachability: Reachability,
+}
+
+#[derive(Clone, Default)]
+struct Reachability {
+    down: Arc<Mutex<std::collections::HashSet<(u64, NodeId)>>>,
+    failures: Arc<std::sync::atomic::AtomicU64>,
+    events: Option<EventSink>,
+}
+
+impl Reachability {
+    fn record(&self, shard: u64, peer: NodeId, reached: bool) {
+        if !reached {
+            self.failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        let changed = {
+            let mut down = self.down.lock().unwrap();
+            if reached { down.remove(&(shard, peer)) } else { down.insert((shard, peer)) }
+        };
+        if let Some(sink) = self.events.as_ref().filter(|_| changed) {
+            sink(if reached {
+                LeadershipEvent::PeerReachable { shard, peer }
+            } else {
+                LeadershipEvent::PeerUnreachable { shard, peer }
+            });
+        }
+    }
 }
 
 impl TcpNetwork {
@@ -241,7 +269,16 @@ impl TcpNetwork {
             by_addr: Arc::default(),
             appends: Arc::default(),
             rpc_floor: DEFAULT_RPC_FLOOR,
+            reachability: Reachability::default(),
         }
+    }
+
+    pub fn with_events(self, sink: EventSink) -> Self {
+        Self { reachability: Reachability { events: Some(sink), ..self.reachability.clone() }, ..self }
+    }
+
+    pub fn rpc_failures(&self) -> u64 {
+        self.reachability.failures.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn with_rpc_floor(self, floor: Duration) -> Self {
@@ -342,6 +379,8 @@ pub struct PeerConn {
     clients: Result<Arc<PeerClients>, RpcError>,
     appends: Arc<std::sync::atomic::AtomicU64>,
     rpc_floor: Duration,
+    target: NodeId,
+    reachability: Reachability,
 }
 
 fn rpc_error(e: RpcError) -> RPCError<ProdTypes> {
@@ -358,10 +397,14 @@ fn unexpected(r: Response) -> RPCError<ProdTypes> {
 
 impl PeerConn {
     async fn consensus(&self, request: Request, option: &RPCOption) -> Result<Response, RPCError<ProdTypes>> {
-        let clients = self.clients.as_ref().map_err(|e| rpc_error(e.clone()))?;
-        call(&clients.consensus, self.me, self.shard, request, option.hard_ttl().max(self.rpc_floor))
-            .await
-            .map_err(rpc_error)
+        let outcome = match self.clients.as_ref() {
+            Ok(clients) => {
+                call(&clients.consensus, self.me, self.shard, request, option.hard_ttl().max(self.rpc_floor)).await
+            }
+            Err(e) => Err(e.clone()),
+        };
+        self.reachability.record(self.shard, self.target, outcome.is_ok());
+        outcome.map_err(rpc_error)
     }
 }
 
@@ -375,6 +418,8 @@ impl RaftNetworkFactory<ProdTypes> for TcpNetwork {
             clients: self.clients(target, &node.addr),
             appends: self.appends.clone(),
             rpc_floor: self.rpc_floor,
+            target,
+            reachability: self.reachability.clone(),
         }
     }
 }
