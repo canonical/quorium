@@ -158,6 +158,7 @@ pub(crate) async fn local_write(shard: &Shard, cmd: Command, origin: Option<Stri
     let _pass = match shard.gate.enter(shard.write_wait).await {
         Ok(pass) => pass,
         Err(crate::gate::Refused::Held) => return Response::NotLeader { leader: None, addr: None },
+        Err(crate::gate::Refused::Closed) => return failed("node is shutting down"),
     };
     shard.wake().await;
     let position = cmd.position();

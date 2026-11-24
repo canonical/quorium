@@ -59,6 +59,7 @@ impl<E> From<ClientError> for Error<E> {
         match e {
             ClientError::Timeout => Error::Timeout,
             ClientError::Unavailable(_) | ClientError::NoLeader { .. } => Error::Unavailable,
+            ClientError::Shutdown => Error::Shutdown,
         }
     }
 }

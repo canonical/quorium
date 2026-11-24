@@ -40,6 +40,7 @@ pub enum ClientError {
     Unavailable(String),
     NoLeader { for_at_least: Duration },
     Timeout,
+    Shutdown,
 }
 
 impl ClientError {
@@ -54,6 +55,7 @@ impl fmt::Display for ClientError {
             ClientError::Unavailable(e) => write!(f, "cluster unavailable: {e}"),
             ClientError::NoLeader { for_at_least } => write!(f, "no leader for at least {for_at_least:?}"),
             ClientError::Timeout => f.write_str("request timed out"),
+            ClientError::Shutdown => f.write_str("node is shutting down"),
         }
     }
 }
@@ -112,6 +114,8 @@ pub(crate) struct Inner {
     state_db: StateStores,
     server: Mutex<Option<Listener>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    movers: Mutex<Vec<JoinHandle<()>>>,
+    closing: std::sync::atomic::AtomicBool,
     client: u64,
     sequencer: quorium_core::session::Sequencer,
     timeout: Duration,
@@ -127,6 +131,23 @@ pub struct Quorium {
 const RPC_TIMEOUT: Duration = Duration::from_secs(2);
 
 const EVENT_BACKLOG: usize = 1024;
+
+const STAND_ASIDE_MARGIN: Duration = Duration::from_secs(30);
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct ShutdownReport {
+    pub handoff: Result<HandoffReport, HandoffError>,
+    pub writes_drained: bool,
+    pub storage: std::io::Result<()>,
+    pub took: Duration,
+}
+
+impl ShutdownReport {
+    pub fn is_clean(&self) -> bool {
+        self.handoff.is_ok() && self.writes_drained && self.storage.is_ok()
+    }
+}
 
 impl Quorium {
     pub fn builder() -> Builder {
@@ -243,13 +264,8 @@ impl Quorium {
             b.discovery.clone(),
             seen,
         )));
-        tasks.push(tokio::spawn(housekeeping(
-            shards.clone(),
-            id,
-            b.datacenter.clone(),
-            b.quiesce_after,
-            peers.clone(),
-        )));
+        let movers =
+            vec![tokio::spawn(housekeeping(shards.clone(), id, b.datacenter.clone(), b.quiesce_after, peers.clone()))];
         let node = Quorium {
             inner: Arc::new(Inner {
                 routing,
@@ -268,6 +284,8 @@ impl Quorium {
                 state_db,
                 server: Mutex::new(Some(server)),
                 tasks: Mutex::new(tasks),
+                movers: Mutex::new(movers),
+                closing: std::sync::atomic::AtomicBool::new(false),
                 client: rand::random::<u64>() >> 1,
                 sequencer: quorium_core::session::Sequencer::default(),
                 timeout: Duration::from_secs(5),
@@ -326,7 +344,7 @@ impl Quorium {
                     Quorium { inner }.rebalance_once(min_items, load_split).await;
                 }
             });
-            node.inner.tasks.lock().unwrap().push(task);
+            node.inner.movers.lock().unwrap().push(task);
         }
         if let Some(addr) = b.metrics_bind {
             crate::metrics::serve_metrics(addr, Arc::downgrade(&node.inner)).await?;
@@ -691,6 +709,9 @@ impl Quorium {
         target: impl Fn(&Request) -> u64,
         make: impl Fn() -> Request,
     ) -> Result<Response, ClientError> {
+        if self.inner.closing.load(Ordering::Acquire) {
+            return Err(ClientError::Shutdown);
+        }
         let deadline = Instant::now() + self.inner.timeout;
         let mut attempts = Attempts::new("no leader");
         while Instant::now() < deadline {
@@ -896,6 +917,41 @@ impl Quorium {
     }
 
     pub async fn shutdown(self) {
+        self.stop_moving_leadership();
+        self.stop_consensus().await;
+        self.inner.announcement.lock().unwrap().take();
+        self.inner.wal.close();
+        self.inner.state_db.close();
+    }
+
+    pub async fn shutdown_gracefully(self, deadline: Duration) -> ShutdownReport {
+        let started = Instant::now();
+        let ends = started + deadline;
+        self.inner.closing.store(true, Ordering::Release);
+        self.stop_moving_leadership();
+        self.inner.announcement.lock().unwrap().take();
+        let options = StepDown { deadline: deadline * 3 / 4, stand_aside: deadline + STAND_ASIDE_MARGIN, prefer: None };
+        let handoff = self.step_down(options).await;
+        for s in self.inner.shards.iter() {
+            s.gate.close();
+        }
+        let drain = futures::future::join_all(self.inner.shards.iter().map(|s| s.gate.drained()));
+        let writes_drained = tokio::time::timeout(ends.saturating_duration_since(Instant::now()), drain).await.is_ok();
+        self.stop_consensus().await;
+        let storage = self.inner.wal.close_synced().await.map(|_| ());
+        self.inner.state_db.close();
+        let report = ShutdownReport { handoff, writes_drained, storage, took: started.elapsed() };
+        tracing::info!(node = self.inner.id, ?report, "shut down gracefully");
+        report
+    }
+
+    fn stop_moving_leadership(&self) {
+        for t in self.inner.movers.lock().unwrap().drain(..) {
+            t.abort();
+        }
+    }
+
+    async fn stop_consensus(&self) {
         for t in self.inner.tasks.lock().unwrap().drain(..) {
             t.abort();
         }
@@ -906,9 +962,6 @@ impl Quorium {
         if let Some(server) = server {
             server.shutdown().await;
         }
-        self.inner.announcement.lock().unwrap().take();
-        self.inner.wal.close();
-        self.inner.state_db.close();
     }
 }
 

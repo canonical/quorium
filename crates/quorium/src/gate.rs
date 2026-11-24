@@ -7,11 +7,13 @@ use tokio::sync::{Notify, watch};
 pub(crate) enum GateState {
     Open,
     Holding,
+    Closed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refused {
     Held,
+    Closed,
 }
 
 pub(crate) struct WriteGate {
@@ -48,6 +50,7 @@ impl WriteGate {
             let current = *state.borrow_and_update();
             match current {
                 GateState::Open => return Ok(pass),
+                GateState::Closed => return Err(Refused::Closed),
                 GateState::Holding => drop(pass),
             }
             if tokio::time::timeout_at(deadline, state.changed()).await.is_err() {
@@ -74,6 +77,10 @@ impl WriteGate {
             }
             holding
         });
+    }
+
+    pub(crate) fn close(&self) {
+        self.state.send_replace(GateState::Closed);
     }
 
     pub(crate) async fn drained(&self) {

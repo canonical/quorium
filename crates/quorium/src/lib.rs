@@ -29,7 +29,7 @@ pub use entity::{Entity, Error, Handle, Key, MigrationError, State, Watch};
 pub use escrow::EscrowCounter;
 pub use escrow_field::Escrow;
 pub use handoff::{HandoffError, HandoffReport, ShardHandoff, StepDown};
-pub use node::{ClientError, Membership, Quorium, Stats, Status};
+pub use node::{ClientError, Membership, Quorium, ShutdownReport, Stats, Status};
 pub use quorium_core::config::{FailoverEstimate, TimingError, Timings};
 pub use quorium_core::entity::Ctx;
 pub use quorium_core::events::LeadershipEvent;

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use quorium::{Discovery, Quorium, StepDown};
+use quorium::{ClientError, Discovery, Quorium, StepDown};
 
 const SHARDS: u64 = 4;
 
@@ -22,7 +22,8 @@ async fn start(dir: &std::path::Path, addr: SocketAddr, seeds: &[SocketAddr]) ->
 }
 
 struct Trio {
-    _dirs: Vec<tempfile::TempDir>,
+    dirs: Vec<tempfile::TempDir>,
+    addrs: Vec<SocketAddr>,
     nodes: Vec<Option<Quorium>>,
 }
 
@@ -34,13 +35,17 @@ impl Trio {
         for (i, dir) in dirs.iter().enumerate() {
             nodes.push(Some(start(dir.path(), addrs[i], &addrs).await));
         }
-        let trio = Trio { _dirs: dirs, nodes };
+        let trio = Trio { dirs, addrs, nodes };
         let deadline = Instant::now() + Duration::from_secs(15);
         while !trio.running().all(|n| n.is_stable(Duration::from_millis(300))) {
             assert!(Instant::now() < deadline, "the cluster never settled");
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         trio
+    }
+
+    async fn restart(&mut self, i: usize) {
+        self.nodes[i] = Some(start(self.dirs[i].path(), self.addrs[i], &self.addrs).await);
     }
 
     fn running(&self) -> impl Iterator<Item = &Quorium> {
@@ -182,4 +187,60 @@ async fn stepping_down_without_leadership_is_a_no_op() {
     let again = trio.node(leader).step_down(StepDown::default()).await.unwrap();
     assert!(again.shards.is_empty());
     trio.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_graceful_shutdown_hands_off_drains_and_closes_storage() {
+    let mut trio = Trio::start().await;
+    let leader = trio.busiest();
+    let survivors: Vec<usize> = (0..3).filter(|i| *i != leader).collect();
+    let writers = spawn_writers(trio.node(survivors[0]), 4);
+    let local = spawn_writers(trio.node(leader), 2);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let elections: u64 = survivors.iter().map(|i| trio.node(*i).stats().elections_started).sum();
+    let node = trio.nodes[leader].take().unwrap();
+    let handle = node.clone();
+    let report = node.shutdown_gracefully(Duration::from_secs(10)).await;
+    assert!(report.is_clean(), "{report:?}");
+    assert!(report.handoff.as_ref().unwrap().shards.iter().all(|h| h.new_leader.is_some()));
+    assert!(matches!(handle.write("late", b"v".to_vec()).await, Err(ClientError::Shutdown)));
+    let (_, _, local_errors) = local.finish().await;
+    assert!(local_errors.iter().all(|e| e == &ClientError::Shutdown.to_string()), "{local_errors:?}");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let (done, _, errors) = writers.finish().await;
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(done > 50);
+    let after: u64 = survivors.iter().map(|i| trio.node(*i).stats().elections_started).sum();
+    assert_eq!(after, elections, "the survivors started elections");
+    trio.node(survivors[0]).write("marker", b"before restart".to_vec()).await.unwrap();
+    drop(handle);
+    trio.restart(leader).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let read = trio.node(leader).read("marker").await;
+        if read.as_ref().is_ok_and(|v| v.as_deref() == Some(&b"before restart"[..])) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the restarted node never caught up: {read:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    trio.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_single_node_reports_that_it_could_not_hand_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let addr = quorium::testing::free_addrs(1)[0];
+    let open =
+        || Quorium::builder().data_dir(dir.path()).bind(addr).insecure_plaintext().single_node_dev_mode().start();
+    let node = open().await.unwrap();
+    node.write("k", b"v".to_vec()).await.unwrap();
+    let report = node.shutdown_gracefully(Duration::from_secs(2)).await;
+    assert!(matches!(report.handoff, Err(quorium::HandoffError::StillLeading { .. })), "{report:?}");
+    assert!(report.writes_drained);
+    assert!(report.storage.is_ok());
+    assert!(!report.is_clean());
+    let node = open().await.unwrap();
+    assert_eq!(node.read("k").await.unwrap().as_deref(), Some(&b"v"[..]));
+    node.shutdown().await;
 }
