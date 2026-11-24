@@ -1,4 +1,7 @@
-use rig::{Event, Region, boot_cleanup_commands, check_bank, check_sales, parse_events, log_limit_commands, netem_commands, one_way_ms, partition_commands};
+use rig::{
+    Event, Region, boot_cleanup_commands, check_bank, check_sales, log_limit_commands, netem_commands, one_way_ms,
+    parse_events, partition_commands,
+};
 
 #[test]
 fn bank_reads_must_conserve_the_total_and_stay_non_negative() {

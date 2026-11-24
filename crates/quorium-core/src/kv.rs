@@ -127,7 +127,9 @@ impl Holder {
     pub fn translate(holder: Option<&Holder>, action: EscrowAction) -> Result<EscrowAction, String> {
         let h = holder.copied().unwrap_or_default();
         Ok(match action {
-            EscrowAction::Grant { .. } | EscrowAction::GrantVia { .. } if h.reclaimed => EscrowAction::Grant { want: 0 },
+            EscrowAction::Grant { .. } | EscrowAction::GrantVia { .. } if h.reclaimed => {
+                EscrowAction::Grant { want: 0 }
+            }
             EscrowAction::GrantVia { want, peer } => {
                 let switching = h.held > 0 && h.copy_peer != Some(peer);
                 EscrowAction::Grant { want: if switching { 0 } else { want } }

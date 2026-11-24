@@ -222,7 +222,13 @@ impl EscrowBook {
         self.grants.lock().unwrap().entry(name.to_string()).or_default().holding.confirm(units);
     }
 
-    pub(crate) async fn record_copy(&self, owner: NodeId, name: String, units: u64, through: u64) -> std::io::Result<bool> {
+    pub(crate) async fn record_copy(
+        &self,
+        owner: NodeId,
+        name: String,
+        units: u64,
+        through: u64,
+    ) -> std::io::Result<bool> {
         {
             let mut copies = self.copies.lock().unwrap();
             let c = copies.entry((owner, name.clone())).or_default();
@@ -530,7 +536,8 @@ impl Quorium {
 
 impl EscrowCounter {
     pub fn local_remaining(&self) -> u64 {
-        self.node().map_or(0, |n| n.escrow_book().grants.lock().unwrap().get(&self.name).map_or(0, |g| g.holding.remaining))
+        self.node()
+            .map_or(0, |n| n.escrow_book().grants.lock().unwrap().get(&self.name).map_or(0, |g| g.holding.remaining))
     }
 
     async fn take_locally(&self, node: &Quorium, units: u64, peer: Option<NodeId>) -> Result<Taken, Error<Infallible>> {

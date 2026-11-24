@@ -61,13 +61,10 @@ impl RaftService for StaleFollower {
 #[tokio::test]
 async fn a_timed_out_leader_hint_is_dropped_so_other_nodes_are_tried() {
     let dead = slow_server(Duration::from_secs(30)).await;
-    let stale = serve(
-        "127.0.0.1:0".parse().unwrap(),
-        None,
-        Arc::new(StaleFollower { leader: dead.local_addr().to_string() }),
-    )
-    .await
-    .unwrap();
+    let stale =
+        serve("127.0.0.1:0".parse().unwrap(), None, Arc::new(StaleFollower { leader: dead.local_addr().to_string() }))
+            .await
+            .unwrap();
     let live = slow_server(Duration::ZERO).await;
     let client = Client::new(vec![stale.local_addr(), live.local_addr()], None)
         .with_transport(Transport::Tcp)

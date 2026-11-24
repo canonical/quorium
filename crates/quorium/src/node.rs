@@ -538,9 +538,8 @@ impl Quorium {
         if members.len() == 1 {
             return crate::escrow::Copy::Alone;
         }
-        self.escrow_copy_peer(&members).map_or(crate::escrow::Copy::Unavailable, |(id, addr)| {
-            crate::escrow::Copy::Peer(id, addr)
-        })
+        self.escrow_copy_peer(&members)
+            .map_or(crate::escrow::Copy::Unavailable, |(id, addr)| crate::escrow::Copy::Peer(id, addr))
     }
 
     fn escrow_copy_peer(&self, members: &std::collections::BTreeSet<NodeId>) -> Option<(NodeId, String)> {

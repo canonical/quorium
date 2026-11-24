@@ -96,7 +96,7 @@ async fn unsettled_sales_survive_a_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sales_are_held_by_a_same_datacenter_peer_until_settled() {
     use quorium::{Discovery, Quorium};
-        let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+    let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
     let addrs = quorium::testing::free_addrs(3);
     let mut nodes = Vec::new();
     for (i, dc) in ["east", "east", "west"].iter().enumerate() {

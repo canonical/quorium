@@ -91,7 +91,10 @@ fn settlements_carry_running_totals_and_count_only_new_sales() {
     assert_eq!(v.sold, 7);
     assert_eq!(v.outstanding.get(&1), Some(&(g - 7)));
     assert_eq!(s.escrow_holder(&EscrowKey::Named("sku".into()), 1).unwrap().settled_through, 7);
-    assert!(matches!(escrow(&mut s, 5, 1, EscrowAction::SettleThrough { through: 6, release: 0 }), Reply::ApplyFailed(_)));
+    assert!(matches!(
+        escrow(&mut s, 5, 1, EscrowAction::SettleThrough { through: 6, release: 0 }),
+        Reply::ApplyFailed(_)
+    ));
     conserved(&s, 100);
 }
 
@@ -117,7 +120,10 @@ fn a_reclaimed_holder_cannot_settle_late_or_take_a_new_grant() {
     escrow(&mut s, 1, 9, EscrowAction::Refill { units: 100 });
     granted(escrow(&mut s, 2, 1, EscrowAction::Grant { want: 20 }));
     as_client(&mut s, 50, 1, 1, EscrowAction::Reclaim { through: 2 });
-    assert!(matches!(escrow(&mut s, 3, 1, EscrowAction::SettleThrough { through: 2, release: 0 }), Reply::ApplyFailed(_)));
+    assert!(matches!(
+        escrow(&mut s, 3, 1, EscrowAction::SettleThrough { through: 2, release: 0 }),
+        Reply::ApplyFailed(_)
+    ));
     assert_eq!(granted(escrow(&mut s, 4, 1, EscrowAction::Grant { want: 20 })), 0);
     assert!(matches!(as_client(&mut s, 50, 2, 1, EscrowAction::Reclaim { through: 2 }), Reply::ApplyFailed(_)));
     conserved(&s, 100);
@@ -224,7 +230,8 @@ fn random_histories_conserve_stock_and_keep_holders_in_step_with_the_view() {
                 1 => EscrowAction::GrantVia { want: rng.below(10) + 1, peer: rng.below(2) + 10 },
                 2 => {
                     let held = s.escrow_holder(&EscrowKey::Named("sku".into()), node).map_or(0, |h| h.held);
-                    let settled = s.escrow_holder(&EscrowKey::Named("sku".into()), node).map_or(0, |h| h.settled_through);
+                    let settled =
+                        s.escrow_holder(&EscrowKey::Named("sku".into()), node).map_or(0, |h| h.settled_through);
                     let sold = rng.below(held + 1);
                     let release = rng.below(held - sold + 1);
                     sold_by[node as usize] = settled + sold;

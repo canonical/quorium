@@ -8,7 +8,10 @@ use std::time::{Duration, Instant};
 use quorium::{Client, TlsConfig, TlsMaterial};
 use quorium_sim::checkers::linearizability::{History, Register, RegisterOp, RegisterRet, check_key};
 use quorium_sim::rng::SimRng;
-use rig::{Event, Region, boot_cleanup_commands, check_bank, check_sales, parse_events, kill_time_ms, log_limit_commands, netem_commands, partition_commands};
+use rig::{
+    Event, Region, boot_cleanup_commands, check_bank, check_sales, kill_time_ms, log_limit_commands, netem_commands,
+    parse_events, partition_commands,
+};
 
 const PORT: u16 = 7000;
 const IMAGE: &str = "ubuntu:24.04";
@@ -188,10 +191,7 @@ impl Rig {
     }
 
     fn kill_timed(&self, i: usize) -> Result<u64, String> {
-        let out = capture(
-            &name(i),
-            "date +%s%3N; systemctl kill -s KILL rig-node",
-        )?;
+        let out = capture(&name(i), "date +%s%3N; systemctl kill -s KILL rig-node")?;
         kill_time_ms(&out).ok_or_else(|| format!("no kill time in {out:?}"))
     }
 
@@ -395,7 +395,8 @@ async fn failover(rig: Arc<Rig>, samples: usize, seed: u64) -> Result<serde_json
             continue;
         };
         let r = rig.clone();
-        let killed_wall = tokio::task::spawn_blocking(move || r.kill_timed(victim)).await.map_err(|e| e.to_string())??;
+        let killed_wall =
+            tokio::task::spawn_blocking(move || r.kill_timed(victim)).await.map_err(|e| e.to_string())??;
         let mut v = n as u64;
         loop {
             v += 1_000_000;
@@ -466,7 +467,11 @@ async fn load(rig: Arc<Rig>, levels: Vec<usize>, seconds: u64, seed: u64) -> Res
             errors += e;
         }
         latencies.sort_unstable();
-        let pct = |p: f64| latencies.get(((latencies.len() as f64 * p) as usize).min(latencies.len().saturating_sub(1))).map_or(0, |v| v / 1000);
+        let pct = |p: f64| {
+            latencies
+                .get(((latencies.len() as f64 * p) as usize).min(latencies.len().saturating_sub(1)))
+                .map_or(0, |v| v / 1000)
+        };
         results.push(serde_json::json!({
             "clients": clients,
             "writes_per_second": latencies.len() as u64 / seconds,
