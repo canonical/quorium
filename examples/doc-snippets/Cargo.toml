@@ -11,6 +11,7 @@ quorium = { path = "../../crates/quorium", features = ["fjall"] }
 serde.workspace = true
 tokio.workspace = true
 postcard.workspace = true
+futures.workspace = true
 
 [lints]
 workspace = true

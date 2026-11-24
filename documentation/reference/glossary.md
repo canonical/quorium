@@ -30,8 +30,11 @@ Group commit
 Ladder
 : Quorium's election order: followers stand for election one after the other, ranked by log completeness, datacenter and node ID, instead of after random timeouts. See [Leader elections and the Ladder](../explanation/ladder.md).
 
+Handoff
+: Moving a shard's leadership to a chosen voter on purpose: new writes are held briefly, the target catches up, then takes over. `step_down` and `shutdown_gracefully` hand off every shard a node leads.
+
 Lease
-: A time-limited right. A leader's read lease lets it answer linearizable reads without a round trip; a singleton lease lets one node run a job.
+: A time-limited right. A leader's lease (`leader_lease`) lets it accept writes and answer linearizable reads while a majority acknowledged it recently; a singleton lease lets one node run a job.
 
 Learner
 : A node that receives the replicated log but does not vote. New nodes join as learners and are promoted to voters when needed.
@@ -65,6 +68,9 @@ Singleton
 
 State type
 : A Rust type marked with `#[derive(quorium::State)]` whose instances are replicated. Its write methods change it through the log; its read methods do not.
+
+Standing aside
+: A node declining to stand for election for a while, usually because it is about to stop. Its peers skip it when ranking candidates and when moving leadership.
 
 Voter
 : A node that votes in elections and counts toward the majority that commits a write. The cluster keeps `replicas` voters.

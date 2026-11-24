@@ -11,6 +11,7 @@ use quorium::StateBackend;
 use quorium::TlsConfig;
 use quorium::TlsMaterial;
 use quorium::Transport;
+use quorium::{ClientError, LeadershipEvent, StepDown};
 use quorium::{Ctx, Discovery, MigrationError, Quorium};
 use serde::{Deserialize, Serialize};
 
@@ -305,4 +306,59 @@ async fn operations(
 fn tls_client(seeds: Vec<SocketAddr>) -> std::io::Result<quorium::Client> {
     let client = quorium::Client::new(seeds, Some(tls()?));
     Ok(client)
+}
+
+async fn timing() -> Result<Quorium, Box<dyn std::error::Error>> {
+    let node = Quorium::builder()
+        .data_dir("/var/lib/shop")
+        .bind("0.0.0.0:7000".parse()?)
+        .tls(tls()?)
+        .heartbeat(Duration::from_millis(500))
+        .leader_lease(Duration::from_secs(3))
+        .rpc_timeout(Duration::from_secs(2))
+        .snapshot_timeout(Duration::from_secs(120))
+        .log_retention(50_000)
+        .start()
+        .await?;
+    let timings = node.timings();
+    println!("a stall of up to {:?} keeps the leader", timings.stall_tolerance());
+    let estimate = node.failover_estimate();
+    if estimate.total > Duration::from_secs(6) {
+        return Err(format!("failover may take {:?}", estimate.total).into());
+    }
+    Ok(node)
+}
+
+async fn maintenance(node: Quorium) -> Result<(), Box<dyn std::error::Error>> {
+    use futures::StreamExt;
+
+    while !node.is_stable(Duration::from_secs(10)) {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    let report = node.step_down(StepDown { deadline: Duration::from_secs(10), ..StepDown::default() }).await?;
+    for moved in &report.shards {
+        println!("shard {} now led by {:?} after {:?}", moved.shard, moved.new_leader, moved.took);
+    }
+
+    let mut events = Box::pin(node.leadership_events());
+    while let Some(event) = events.next().await {
+        match event {
+            LeadershipEvent::LeaderChanged { shard, leader, .. } => println!("shard {shard}: leader {leader:?}"),
+            LeadershipEvent::ElectionStarted { shard, term, .. } => println!("shard {shard}: election for term {term}"),
+            other => println!("{other:?}"),
+        }
+    }
+
+    match node.write("heartbeat/worker-7", b"alive".to_vec()).await {
+        Ok(_) => {}
+        Err(ClientError::NoLeader { for_at_least }) => eprintln!("no leader for {for_at_least:?}; retry shortly"),
+        Err(e) => return Err(e.into()),
+    }
+
+    let report = node.shutdown_gracefully(Duration::from_secs(20)).await;
+    if !report.is_clean() {
+        eprintln!("shutdown was not clean: {report:?}");
+    }
+    Ok(())
 }

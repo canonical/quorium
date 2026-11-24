@@ -556,6 +556,7 @@ dependencies = [
 name = "doc-snippets"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "futures",
  "postcard",
  "quorium",
  "serde",
