@@ -35,12 +35,14 @@ fn defaults_derive_the_documented_values() {
     assert_eq!(t.leader_lease, ms(100));
     assert_eq!(t.rpc_timeout, ms(1000));
     assert_eq!(t.write_wait, ms(2000));
+    assert_eq!(t.snapshot_timeout, ms(60_000));
     assert_eq!(t.ladder, LadderConfig::default());
     let c = t.raft_config();
     assert_eq!(c.cluster_name, "quorium");
     assert_eq!(c.heartbeat_interval, 50);
     assert_eq!(c.election_timeout_min, 99);
     assert_eq!(c.election_timeout_max, 100);
+    assert_eq!(c.install_snapshot_timeout, 60_000);
 }
 
 #[test]
@@ -127,6 +129,8 @@ fn a_campaign_timeout_above_its_maximum_is_refused() {
 fn zero_waits_are_refused() {
     let rpc = TimingConfig { rpc_timeout: Duration::ZERO, ..TimingConfig::default() };
     assert_eq!(rpc.derive(), Err(TimingError::ZeroRpcTimeout));
+    let snapshot = TimingConfig { snapshot_timeout: Duration::from_micros(10), ..TimingConfig::default() };
+    assert_eq!(snapshot.derive(), Err(TimingError::ZeroSnapshotTimeout));
     let write = TimingConfig { write_wait: Duration::ZERO, ..TimingConfig::default() };
     assert_eq!(write.derive(), Err(TimingError::ZeroWriteWait));
 }

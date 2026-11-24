@@ -191,3 +191,39 @@ fn leadership_events_record_a_failover() {
         && *at >= crashed_at
         && matches!(e, quorium_core::events::LeadershipEvent::LeaderChanged { leader: Some(l), .. } if *l == new)));
 }
+
+fn lagging_follower_over_a_slow_link(snapshot_timeout: Duration) -> (Vec<Option<u64>>, u64) {
+    let mut cfg = ClusterConfig::new(1, &[(1, "a"), (2, "b"), (3, "c")]);
+    cfg.link =
+        quorium_sim::network::LinkConfig { min_latency: ms(150), max_latency: ms(152), loss: 0.0, duplicate: 0.0 };
+    cfg.timing.heartbeat = ms(500);
+    cfg.timing.snapshot_timeout = snapshot_timeout;
+    cfg.snapshot_every = Some(20);
+    let mut c = SimCluster::new(cfg);
+    c.run_for(ms(5_000));
+    let leader = c.leader().expect("a leader");
+    let lagger = c.node_ids().into_iter().find(|n| *n != leader).unwrap();
+    c.crash(lagger);
+    for i in 0..100 {
+        c.write(&format!("k{i}"), i).unwrap();
+    }
+    let before = c.rpc_counts().snapshot;
+    c.restart(lagger);
+    c.run_for(ms(30_000));
+    (c.applied_indexes(), c.rpc_counts().snapshot - before)
+}
+
+#[test]
+fn a_lagging_follower_catches_up_by_snapshot_over_a_slow_link() {
+    let (applied, sent) =
+        lagging_follower_over_a_slow_link(quorium_core::config::TimingConfig::default().snapshot_timeout);
+    assert!(applied.windows(2).all(|w| w[0] == w[1]), "{applied:?}");
+    assert!(sent <= 3, "{sent} snapshots sent");
+}
+
+#[test]
+fn a_snapshot_deadline_below_the_round_trip_never_lands() {
+    let (applied, sent) = lagging_follower_over_a_slow_link(ms(200));
+    assert!(applied.windows(2).any(|w| w[0] != w[1]), "{applied:?}");
+    assert!(sent > 10, "{sent} snapshots sent");
+}

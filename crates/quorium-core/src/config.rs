@@ -10,6 +10,7 @@ pub struct TimingConfig {
     pub heartbeat: Duration,
     pub leader_lease: Option<Duration>,
     pub rpc_timeout: Duration,
+    pub snapshot_timeout: Duration,
     pub ladder: Option<LadderConfig>,
     pub write_wait: Duration,
 }
@@ -20,6 +21,7 @@ impl Default for TimingConfig {
             heartbeat: Duration::from_millis(50),
             leader_lease: None,
             rpc_timeout: Duration::from_secs(1),
+            snapshot_timeout: Duration::from_secs(60),
             ladder: None,
             write_wait: Duration::from_secs(2),
         }
@@ -31,6 +33,7 @@ pub struct Timings {
     pub heartbeat: Duration,
     pub leader_lease: Duration,
     pub rpc_timeout: Duration,
+    pub snapshot_timeout: Duration,
     pub ladder: LadderConfig,
     pub write_wait: Duration,
 }
@@ -51,6 +54,7 @@ pub enum TimingError {
     BaseTooShort { base: Duration, minimum: Duration },
     CampaignTimeoutAboveMax { campaign_timeout: Duration, max_campaign: Duration },
     ZeroRpcTimeout,
+    ZeroSnapshotTimeout,
     ZeroWriteWait,
 }
 
@@ -72,6 +76,7 @@ impl fmt::Display for TimingError {
                 write!(f, "ladder campaign timeout {campaign_timeout:?} exceeds its maximum {max_campaign:?}")
             }
             TimingError::ZeroRpcTimeout => f.write_str("rpc timeout must be above zero"),
+            TimingError::ZeroSnapshotTimeout => f.write_str("snapshot timeout must be above zero"),
             TimingError::ZeroWriteWait => f.write_str("write wait must be above zero"),
         }
     }
@@ -113,10 +118,20 @@ impl TimingConfig {
         if self.rpc_timeout.is_zero() {
             return Err(TimingError::ZeroRpcTimeout);
         }
+        if self.snapshot_timeout.as_millis() == 0 {
+            return Err(TimingError::ZeroSnapshotTimeout);
+        }
         if self.write_wait.is_zero() {
             return Err(TimingError::ZeroWriteWait);
         }
-        Ok(Timings { heartbeat, leader_lease, rpc_timeout: self.rpc_timeout, ladder, write_wait: self.write_wait })
+        Ok(Timings {
+            heartbeat,
+            leader_lease,
+            rpc_timeout: self.rpc_timeout,
+            snapshot_timeout: self.snapshot_timeout,
+            ladder,
+            write_wait: self.write_wait,
+        })
     }
 }
 
@@ -129,6 +144,7 @@ impl Timings {
             heartbeat_interval: heartbeat,
             election_timeout_min: lease - 1,
             election_timeout_max: lease,
+            install_snapshot_timeout: self.snapshot_timeout.as_millis() as u64,
             enable_elect: false,
             enable_pre_vote: Some(true),
             enable_leader_restore: Some(false),
