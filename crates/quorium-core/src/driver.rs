@@ -9,6 +9,7 @@ use openraft::storage::RaftStateMachine;
 use openraft::vote::RaftLeaderId;
 use openraft::{AsyncRuntime, Instant, Raft, ServerState};
 
+use crate::events::{EventSink, LeadershipEvent, LeadershipStats};
 use crate::ladder::{Action, Controller, LadderConfig, LogPosition, Member};
 use crate::types::{LogId, NodeId, Types};
 
@@ -20,6 +21,7 @@ struct Shared {
     controller: Controller,
     pending: Option<Action>,
     last_contact: Option<(NodeId, Duration)>,
+    stats: LeadershipStats,
 }
 
 pub struct Ladder<RT: AsyncRuntime> {
@@ -28,6 +30,7 @@ pub struct Ladder<RT: AsyncRuntime> {
     epoch: InstantOf<Types<RT>>,
     tick: Duration,
     shard: u64,
+    events: Option<EventSink>,
 }
 
 impl<RT: AsyncRuntime> Clone for Ladder<RT> {
@@ -38,6 +41,7 @@ impl<RT: AsyncRuntime> Clone for Ladder<RT> {
             epoch: self.epoch,
             tick: self.tick,
             shard: self.shard,
+            events: self.events.clone(),
         }
     }
 }
@@ -47,12 +51,46 @@ impl<RT: AsyncRuntime> Ladder<RT> {
         let members = datacenters.iter().map(|(id, dc)| Member::new(*id, dc.clone())).collect();
         let controller = Controller::new(config, me, members);
         Self {
-            shared: Arc::new(Mutex::new(Shared { controller, pending: None, last_contact: None })),
+            shared: Arc::new(Mutex::new(Shared {
+                controller,
+                pending: None,
+                last_contact: None,
+                stats: LeadershipStats::default(),
+            })),
             datacenters: Arc::new(Mutex::new(datacenters)),
             epoch: InstantOf::<Types<RT>>::now(),
             tick,
             shard: 0,
+            events: None,
         }
+    }
+
+    pub fn with_events(self, sink: EventSink) -> Self {
+        Self { events: Some(sink), ..self }
+    }
+
+    fn emit(&self, event: LeadershipEvent) {
+        if let Some(sink) = &self.events {
+            sink(event);
+        }
+    }
+
+    pub fn shard(&self) -> u64 {
+        self.shard
+    }
+
+    pub fn stats(&self) -> LeadershipStats {
+        self.shared.lock().unwrap().stats
+    }
+
+    pub fn voters_live(&self) -> bool {
+        self.shared.lock().unwrap().controller.voters_live()
+    }
+
+    pub fn stable_for(&self, window: Duration) -> bool {
+        let now = self.now();
+        let shared = self.shared.lock().unwrap();
+        shared.stats.stable_for(window, now) && shared.controller.voters_live()
     }
 
     pub fn for_shard(
@@ -176,14 +214,18 @@ impl<RT: AsyncRuntime> Ladder<RT> {
         let me = *raft.node_id();
         let mut was_leader = false;
         let mut known: Vec<Member> = Vec::new();
+        let mut last_tick = self.now();
         loop {
             let metrics = raft.metrics().borrow_watched().clone();
             if metrics.running_state.is_err() {
                 return;
             }
             let now = self.now();
-            let action = {
+            let elapsed = now.saturating_sub(last_tick);
+            last_tick = now;
+            let (action, leader_changed) = {
                 let mut shared = self.shared.lock().unwrap();
+                let leader_changed = shared.stats.observe(metrics.current_leader, metrics.current_term, now, elapsed);
                 let voters: Vec<NodeId> = metrics.membership_config.membership().voter_ids().collect();
                 let members: Vec<Member> = {
                     let dcs = self.datacenters.lock().unwrap();
@@ -208,9 +250,25 @@ impl<RT: AsyncRuntime> Ladder<RT> {
                 was_leader = leading;
                 let pending = shared.pending.take();
                 let polled = shared.controller.poll(now);
-                if known.iter().any(|m| m.id == me) && !leading { pending.or(polled) } else { None }
+                let action = if known.iter().any(|m| m.id == me) && !leading { pending.or(polled) } else { None };
+                if action.is_some() {
+                    shared.stats.election_started(now);
+                }
+                (action, leader_changed)
             };
+            if leader_changed {
+                self.emit(LeadershipEvent::LeaderChanged {
+                    shard: self.shard,
+                    term: metrics.current_term,
+                    leader: metrics.current_leader,
+                });
+            }
             if let Some(Action::Elect { pre_vote }) = action {
+                self.emit(LeadershipEvent::ElectionStarted {
+                    shard: self.shard,
+                    term: metrics.current_term + 1,
+                    pre_vote,
+                });
                 tracing::info!(
                     node = me,
                     shard = self.shard,

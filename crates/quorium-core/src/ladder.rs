@@ -400,6 +400,10 @@ impl Controller {
         self.now = self.now.max(now);
     }
 
+    pub fn voters_live(&self) -> bool {
+        self.members.iter().filter(|m| m.id != self.me).all(|m| self.is_live(m.id))
+    }
+
     fn is_live(&self, id: NodeId) -> bool {
         self.peers
             .get(&id)

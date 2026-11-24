@@ -3,6 +3,7 @@ pub mod config;
 pub mod driver;
 pub mod entity;
 pub mod escrow;
+pub mod events;
 pub mod hash;
 pub mod kv;
 pub mod ladder;
