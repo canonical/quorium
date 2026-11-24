@@ -1,3 +1,4 @@
+pub mod backoff;
 pub mod config;
 pub mod driver;
 pub mod entity;
