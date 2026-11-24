@@ -1,6 +1,6 @@
 # Spec conformance
 
-`spec/Ladder.tla` is the model, checked exhaustively with TLC on small instances (`MCSafety.cfg`, `MCLiveness.cfg`). Simulator traces are also checked against the model, so the model and the code cannot drift apart unnoticed.
+`spec/Ladder.tla` is the model, checked exhaustively with TLC on small instances (`MCSafety.cfg`, `MCLiveness.cfg`, and `MCAside.cfg`, which adds a node standing aside from elections). Simulator traces are also checked against the model, so the model and the code cannot drift apart unnoticed.
 
 ## How it works
 
@@ -26,6 +26,8 @@
 | `LogTermsBounded` | Entries are never newer than their holder's term |
 
 ## Where the projection is coarser than the spec
+
+- Standing aside is not traced: `TraceCheck.tla` fixes `aside` to the empty set. It only restricts which nodes may campaign, which the invariants and step rules do not depend on.
 
 - The spec's actions are atomic, while the implementation passes messages. One sample can therefore cover several spec steps, and the step rules are written to accept such compositions. A follower may receive only part of a leader's log, which `Replicate` would not allow, so the rule asks for a prefix match.
 - openraft stores the leader a node has accepted in the same field as its vote (a *committed* vote). The projection keeps a node's earlier vote when a committed vote for another node arrives within the same term.

@@ -26,8 +26,13 @@ Measured on the development machine (criterion, `cargo bench`):
 
 ## Timing
 
-- `heartbeat(d)` should be about 2–3× the largest round trip between voters. openraft gives each heartbeat a deadline of one heartbeat interval, and a leader only accepts writes while a quorum has acknowledged its recent heartbeats (its lease). The default of 50 ms suits a single region; use 150 ms when regions are 60 ms apart. When a fresh leader's lease is not yet established, it holds incoming writes for up to 2 s instead of redirecting clients.
-- The Ladder's election base is raised to at least 3× the heartbeat. Failover time grows with it.
+- `heartbeat(d)` should be about 2–3× the largest round trip between voters. The default of 50 ms suits a single region; use 150 ms when regions are 60 ms apart.
+- A leader only accepts writes while a majority acknowledged it within its lease, `leader_lease(d)` (default 2 × heartbeat, at least that). It therefore survives a silence of `leader_lease - heartbeat` (`timings().stall_tolerance()`). Followers refuse to vote for another candidate for the same time, so a longer lease also means a slower failover.
+- Consensus requests get a deadline of at least `rpc_timeout(d)` (default 1 s). A deadline longer than the lease does not keep the lease; raise both if hosts may stall.
+- Full snapshots get their own deadline, `snapshot_timeout(d)` (default 60 s). It must cover sending a whole shard's state to a follower.
+- When a leader's lease has lapsed, it holds a write for up to `write_wait(d)` (default 2 s), retrying with exponential backoff and sharing one heartbeat among all waiting writes. Then the caller gets `ClientError::NoLeader`.
+- The Ladder's election base is raised to at least `leader_lease + heartbeat` (3 heartbeats by default). Failover time grows with it. An explicit `ladder(config)` is used as given; settings that conflict make `start` fail with `StartError::Timing` rather than being adjusted.
+- `timings()` reports the values in effect, and `failover_estimate()` the expected failover at the measured round trip. The estimate assumes one successful campaign; use it to size timeouts that depend on failover, with a margin.
 - The node logs `the round trip to a peer exceeds the heartbeat interval` when this rule is broken.
 - Disk fsync latency is measured continuously and lengthens election campaigns. A slow disk makes failover slower rather than causing repeated elections.
 
@@ -48,9 +53,17 @@ Measured on the development machine (criterion, `cargo bench`):
 
 A linearizable read is answered by the shard leader at once while its lease is valid (it heard from a majority within the election timeout). Otherwise the leader confirms leadership with a majority first (ReadIndex). Leases assume clocks advance at roughly the same rate on every node. Skew between wall clocks does not matter. A `.stale()` handle reads the local replica without any check.
 
+## Planned restarts
+
+1. Wait until `node.is_stable(window)` is `true`: every shard has had the same leader for `window`, no election started within it, and every voter was heard from recently.
+2. Call `node.shutdown_gracefully(deadline).await`. It hands leadership of every shard to another voter, standing aside so that the node is not elected again, drains writes, then stops consensus and syncs and closes the log and the state database. The returned `ShutdownReport` says which steps completed.
+3. Restart the node on the same data directory and wait until it has caught up before stopping the next one.
+
+`node.step_down(options).await` hands off leadership without stopping. To hand off a shard, the leader holds new writes briefly, waits until the target has its whole log, transfers, and waits until the target leads; held writes then go to the new leader. `shutdown()` still stops at once, without handing off.
+
 ## Upgrades
 
-1. Upgrade one node at a time.
+1. Upgrade one node at a time, following [Planned restarts](#planned-restarts).
 2. A new write method becomes usable only when every voter of its shard advertises it; until then the handle returns `Error::Unavailable`, which is retryable.
 3. A change to a stored type's encoding needs `version = N + 1` and `migrate = f`. Old state is migrated when it is next written or read.
 4. Startup refuses to run if stored state contains a type that the binary does not register.
@@ -69,7 +82,7 @@ new_cluster_node.import(Path::new("/backups/2026-10-19.qbak")).await?;
 
 ## Monitoring
 
-Set `metrics_bind(addr)` to serve Prometheus text at `/metrics`, or call `metrics_text()`.
+Set `metrics_bind(addr)` to serve Prometheus text at `/metrics`, or call `metrics_text()`. `leadership_events()` streams elections, leader changes and peer reachability changes as this node observes them.
 
 | Metric | Meaning |
 |---|---|
@@ -78,6 +91,13 @@ Set `metrics_bind(addr)` to serve Prometheus text at `/metrics`, or call `metric
 | `quorium_shard_last_applied{shard}` | Applied log index; compare across nodes to see lag |
 | `quorium_shard_quiesced{shard}` | 1 when an idle shard has stopped heartbeating |
 | `quorium_shard_checkpoint_index{shard}` | Log index of the last durable state checkpoint |
+| `quorium_shard_purged_index{shard}` | Log index up to which the log was discarded; a follower behind it needs a snapshot |
+| `quorium_shard_leader_age_seconds{shard}` | How long the shard has had its current leader |
+| `quorium_shard_quorum_contact_age_seconds{shard}` | On the leader, time since a majority last acknowledged it; writes stop when it exceeds the leader lease |
+| `quorium_elections_started_total`, `quorium_leader_changes_total` | Election churn seen by this node |
+| `quorium_rpc_failures_total` | Consensus requests to peers that failed or timed out |
+| `quorium_leaderless_seconds_total` | Shard time spent without a known leader |
+| `quorium_snapshots_sent_total{peer}` | Full snapshots sent per peer; a steady rise means that peer cannot catch up |
 | `quorium_large_entity_writes_total` | Writes that left an entity above 1 MiB |
 | `quorium_shard_writes_per_second{shard}` | Writes this node led on the shard in the last full second |
 | `quorium_appends_sent_total` | Replication traffic |
@@ -92,6 +112,8 @@ A Grafana dashboard for these metrics is in [dashboards/quorium.json](dashboards
 State is stored in redb by default. With the `fjall` feature, `state_backend(StateBackend::Fjall)` stores it in an LSM tree under `state.fjall` instead, which suits write-heavy or very large datasets. Both sit behind the same `Storage` trait and migrate legacy snapshot files the same way. Startup refuses to switch backends on a data directory that already holds state in the other one.
 
 Each shard checkpoints its state into `state.redb` when Raft takes a snapshot (by default every 5,000 log entries). A checkpoint writes only the rows changed since the previous one, in a single fsynced redb transaction, and the log is truncated behind it. Individual writes are made durable by the log, so state commits never fsync per write. `node.checkpoint().await` forces a checkpoint of every shard, for example before a planned shutdown.
+
+The log keeps `log_retention(n)` entries behind each checkpoint (default 1,000, or `checkpoint_every` if smaller). A follower further behind than that receives a full snapshot instead. With a high write rate, raise it so that a follower away for a short restart can still catch up from the log.
 
 ## Rebalancing
 

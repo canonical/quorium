@@ -30,3 +30,7 @@ New enum variants, appended:
 - `EscrowAction::SettleThrough`, `Reclaim`, `Close` and `GrantVia`;
 - `Request::EscrowSold`;
 - escrow journal records `Copied`, `GrantedVia`, `PeerSold`, `Fenced` and `Reclaimed`.
+
+## Appended in 2026-11
+
+- `Request::StandAside { for_ms }` (method 17): a node tells its peers it will not stand for election for `for_ms` milliseconds. It is appended, so the envelope format stays 1. An older node cannot decode it and answers with an error, which the sender ignores; that node then simply keeps ranking the sender as a candidate.

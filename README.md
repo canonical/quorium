@@ -28,7 +28,7 @@ cargo xtask gate --thresholds gates/phase1.toml --seeds 10000
 cargo xtask sweep --from 0 --seeds 100000
 ```
 
-The TLA+ models in `spec/` run with TLC (`-deadlock`, configs `MCSafety.cfg` and `MCLiveness.cfg`). Simulator traces are checked against the same spec with `QUORIUM_TLA_JAR=... cargo test --release -p quorium-sim --test conformance`.
+The TLA+ models in `spec/` run with TLC (`-deadlock`, configs `MCSafety.cfg`, `MCLiveness.cfg` and `MCAside.cfg`). Simulator traces are checked against the same spec with `QUORIUM_TLA_JAR=... cargo test --release -p quorium-sim --test conformance`.
 
 ## License
 
