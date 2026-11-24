@@ -11,6 +11,7 @@ use openraft::impls::BasicNode;
 use openraft_rt_tokio::TokioRuntime;
 use quorium_core::config::Timings;
 use quorium_core::driver::Ladder;
+use quorium_core::events::{EventSink, LeadershipEvent};
 use quorium_core::kv::{Command, KvOp, Reply};
 use quorium_core::kv::{RouteOp, RoutingTable};
 use quorium_core::shard::{entity_position, key_hash};
@@ -65,19 +66,27 @@ pub struct Membership {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Status {
     pub id: NodeId,
     pub leader: Option<NodeId>,
     pub term: u64,
     pub is_leader: bool,
+    pub leader_age: Option<Duration>,
+    pub quorum_contact_age: Option<Duration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Stats {
     pub appends_sent: u64,
     pub pings_received: u64,
     pub quiesced_shards: usize,
     pub large_entity_writes: u64,
+    pub elections_started: u64,
+    pub leader_changes: u64,
+    pub rpc_failures: u64,
+    pub leaderless: Duration,
 }
 
 pub const LARGE_ENTITY_BYTES: usize = 1 << 20;
@@ -106,6 +115,7 @@ pub(crate) struct Inner {
     sequencer: quorium_core::session::Sequencer,
     timeout: Duration,
     timings: Timings,
+    events: tokio::sync::broadcast::Sender<LeadershipEvent>,
 }
 
 #[derive(Clone)]
@@ -114,6 +124,8 @@ pub struct Quorium {
 }
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(2);
+
+const EVENT_BACKLOG: usize = 1024;
 
 impl Quorium {
     pub fn builder() -> Builder {
@@ -127,7 +139,16 @@ impl Quorium {
         let advertise = b.advertise.unwrap_or(bind);
         let disk = FileDisk::open(&dir.join("wal"))?;
         let wal = SharedWal::<TokioRuntime, FileDisk>::open(disk).map_err(|e| StartError::Storage(e.to_string()))?;
-        let network = TcpNetwork::with_protocol(id, b.tls.clone(), b.transport).with_rpc_floor(timings.rpc_timeout);
+        let (events, _) = tokio::sync::broadcast::channel(EVENT_BACKLOG);
+        let sink: EventSink = {
+            let events = events.clone();
+            Arc::new(move |event| {
+                let _ = events.send(event);
+            })
+        };
+        let network = TcpNetwork::with_protocol(id, b.tls.clone(), b.transport)
+            .with_rpc_floor(timings.rpc_timeout)
+            .with_events(sink.clone());
         let ladder_config = timings.ladder.clone();
         let mut config = timings.raft_config();
         if let Some(n) = b.checkpoint_every {
@@ -171,7 +192,8 @@ impl Quorium {
                 .map_err(|e| StartError::Raft(e.to_string()))?;
             let dcs: BTreeMap<NodeId, String> = [(id, b.datacenter.clone())].into();
             let ladder =
-                Ladder::<TokioRuntime>::for_shard(ladder_config.clone(), id, dcs, Duration::from_millis(10), s);
+                Ladder::<TokioRuntime>::for_shard(ladder_config.clone(), id, dcs, Duration::from_millis(10), s)
+                    .with_events(sink.clone());
             shards.push(Arc::new(Shard::new(s, raft, ladder, &timings)));
         }
         let shards = Arc::new(shards);
@@ -249,6 +271,7 @@ impl Quorium {
                 sequencer: quorium_core::session::Sequencer::default(),
                 timeout: Duration::from_secs(5),
                 timings: timings.clone(),
+                events,
             }),
         };
         let weak = Arc::downgrade(&node.inner);
@@ -550,13 +573,32 @@ impl Quorium {
     }
 
     pub fn shard_status(&self, s: u64) -> Status {
-        let m = self.shard(s).raft.metrics().borrow_watched().clone();
+        let shard = self.shard(s);
+        let m = shard.raft.metrics().borrow_watched().clone();
+        let now = shard.ladder.now();
         Status {
             id: self.inner.id,
             leader: m.current_leader,
             term: m.current_term,
             is_leader: m.current_leader == Some(self.inner.id),
+            leader_age: shard.ladder.stats().leader_since.map(|since| now.saturating_sub(since)),
+            quorum_contact_age: m.last_quorum_acked.map(|at| openraft::Instant::elapsed(&*at)),
         }
+    }
+
+    pub fn leadership_events(&self) -> impl futures::Stream<Item = LeadershipEvent> + Send + 'static {
+        futures::stream::unfold(self.inner.events.subscribe(), |mut rx| async move {
+            use tokio::sync::broadcast::error::RecvError;
+            match rx.recv().await {
+                Ok(event) => Some((event, rx)),
+                Err(RecvError::Lagged(missed)) => Some((LeadershipEvent::Lagged { missed }, rx)),
+                Err(RecvError::Closed) => None,
+            }
+        })
+    }
+
+    pub fn is_stable(&self, window: Duration) -> bool {
+        self.inner.shards.iter().all(|s| s.ladder.stable_for(window))
     }
 
     pub fn status(&self) -> Status {
@@ -564,11 +606,16 @@ impl Quorium {
     }
 
     pub fn stats(&self) -> Stats {
+        let shard_stats: Vec<_> = self.inner.shards.iter().map(|s| s.ladder.stats()).collect();
         Stats {
             appends_sent: self.inner.network.appends_sent(),
             pings_received: self.inner.service.pings.load(Ordering::Relaxed),
             quiesced_shards: quiesced_shards(&self.inner.shards, self.inner.id).len(),
             large_entity_writes: self.inner.large_entity_writes.load(Ordering::Relaxed),
+            elections_started: shard_stats.iter().map(|s| s.elections_started).sum(),
+            leader_changes: shard_stats.iter().map(|s| s.leader_changes).sum(),
+            rpc_failures: self.inner.network.rpc_failures(),
+            leaderless: shard_stats.iter().map(|s| s.leaderless).sum(),
         }
     }
 

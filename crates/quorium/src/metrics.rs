@@ -51,6 +51,24 @@ impl Quorium {
             let _ =
                 writeln!(out, "quorium_shard_checkpoint_index{{shard=\"{s}\"}} {}", m.snapshot.map_or(0, |l| l.index));
         }
+        family(&mut out, "quorium_shard_leader_age_seconds", "gauge", "Time the shard has had its current leader.");
+        for s in 0..self.shards() {
+            if let Some(age) = self.shard_status(s).leader_age {
+                let _ = writeln!(out, "quorium_shard_leader_age_seconds{{shard=\"{s}\"}} {}", age.as_secs_f64());
+            }
+        }
+        family(
+            &mut out,
+            "quorium_shard_quorum_contact_age_seconds",
+            "gauge",
+            "Time since a quorum last acknowledged this leader.",
+        );
+        for s in 0..self.shards() {
+            if let Some(age) = self.shard_status(s).quorum_contact_age {
+                let _ =
+                    writeln!(out, "quorium_shard_quorum_contact_age_seconds{{shard=\"{s}\"}} {}", age.as_secs_f64());
+            }
+        }
         family(&mut out, "quorium_shard_quiesced", "gauge", "1 when the shard is quiesced on this leader.");
         for (s, _, q) in &rows {
             let _ = writeln!(out, "quorium_shard_quiesced{{shard=\"{s}\"}} {}", u8::from(*q));
@@ -58,6 +76,14 @@ impl Quorium {
         let stats = self.stats();
         family(&mut out, "quorium_appends_sent_total", "counter", "Append requests sent to peers.");
         let _ = writeln!(out, "quorium_appends_sent_total {}", stats.appends_sent);
+        family(&mut out, "quorium_elections_started_total", "counter", "Elections this node started.");
+        let _ = writeln!(out, "quorium_elections_started_total {}", stats.elections_started);
+        family(&mut out, "quorium_leader_changes_total", "counter", "Leader changes this node observed.");
+        let _ = writeln!(out, "quorium_leader_changes_total {}", stats.leader_changes);
+        family(&mut out, "quorium_rpc_failures_total", "counter", "Consensus requests to peers that failed.");
+        let _ = writeln!(out, "quorium_rpc_failures_total {}", stats.rpc_failures);
+        family(&mut out, "quorium_leaderless_seconds_total", "counter", "Shard time spent without a known leader.");
+        let _ = writeln!(out, "quorium_leaderless_seconds_total {}", stats.leaderless.as_secs_f64());
         family(&mut out, "quorium_pings_received_total", "counter", "Host liveness pings received.");
         let _ = writeln!(out, "quorium_pings_received_total {}", stats.pings_received);
         let (fsyncs, bytes) = self.wal_stats();

@@ -29,6 +29,7 @@ pub use escrow_field::Escrow;
 pub use node::{ClientError, Membership, Quorium, Stats, Status};
 pub use quorium_core::config::{FailoverEstimate, TimingError, Timings};
 pub use quorium_core::entity::Ctx;
+pub use quorium_core::events::LeadershipEvent;
 pub use quorium_core::ladder::LadderConfig;
 pub use quorium_macros::{State, state};
 pub use quorium_net::tls::{TlsConfig, TlsMaterial};

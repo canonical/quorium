@@ -33,6 +33,12 @@ async fn prometheus_metrics_describe_the_node() {
         "quorium_wal_bytes",
         "quorium_wal_sync_latency_seconds",
         "quorium_node_info{datacenter=\"eu-1\"",
+        "# TYPE quorium_elections_started_total counter",
+        "quorium_leader_changes_total",
+        "quorium_rpc_failures_total 0",
+        "quorium_leaderless_seconds_total",
+        "# TYPE quorium_shard_leader_age_seconds gauge",
+        "# TYPE quorium_shard_quorum_contact_age_seconds gauge",
     ] {
         assert!(text.contains(needle), "missing {needle} in:\n{text}");
     }
