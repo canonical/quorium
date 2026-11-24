@@ -28,6 +28,7 @@ use crate::attempts::Attempts;
 use crate::builder::{Builder, StartError, node_id};
 use crate::discovery::Discovery;
 use crate::entity::{Key, State};
+use crate::handoff::{self, HandoffError, HandoffReport, StepDown};
 use crate::service::{
     NodeService, PeerBook, Shard, group_for, is_initialized, local_read, local_read_entity, local_write,
     observe_peer_ping, quiesced_shards,
@@ -597,6 +598,10 @@ impl Quorium {
         })
     }
 
+    pub async fn step_down(&self, options: StepDown) -> Result<HandoffReport, HandoffError> {
+        handoff::step_down(&self.inner.shards, self.inner.id, &self.inner.peers, &self.inner.network, options).await
+    }
+
     pub fn is_stable(&self, window: Duration) -> bool {
         self.inner.shards.iter().all(|s| s.ladder.stable_for(window))
     }
@@ -1149,30 +1154,28 @@ const FOLLOW_WINDOW: Duration = Duration::from_secs(2);
 const FOLLOW_MIN_WRITES: u64 = 20;
 const FOLLOW_SHARE: f64 = 0.6;
 
-fn leader_counts(shards: &[Arc<Shard>]) -> BTreeMap<NodeId, usize> {
-    let mut counts = BTreeMap::new();
-    for s in shards {
-        if let Some(l) = s.raft.metrics().borrow_watched().current_leader {
-            *counts.entry(l).or_default() += 1;
-        }
-    }
-    counts
-}
-
 const MAX_TRANSFERS_PER_TICK: usize = 4;
 
-fn caught_up(
+fn idle_and_caught_up(
     m: &openraft::RaftMetrics<quorium_net::raft::ProdTypes>,
     target: NodeId,
     since_last_write: Duration,
 ) -> bool {
-    let matched = m.replication.as_ref().and_then(|r| r.get(&target).cloned().flatten()).map(|l| l.index);
-    let last = m.last_log_index;
-    quorium_core::ladder::transfer_ready(since_last_write, matched, last)
+    since_last_write >= quorium_core::ladder::TRANSFER_IDLE && handoff::target_caught_up(m, target)
+}
+
+fn start_transfer(s: &Arc<Shard>, target: NodeId) {
+    let s = s.clone();
+    tokio::spawn(async move {
+        if let Err(e) = handoff::transfer(&s, target, s.transfer_budget).await {
+            tracing::debug!(shard = s.id, to = target, error = ?e, "leadership transfer did not complete");
+        }
+    });
 }
 
 async fn rebalance(shards: &[Arc<Shard>], id: NodeId, peers: &PeerBook) {
-    let mut counts = leader_counts(shards);
+    let mut counts = handoff::leader_counts(shards);
+    let live = handoff::live_peers(peers);
     let mut transfers = 0;
     for s in shards {
         if transfers >= MAX_TRANSFERS_PER_TICK {
@@ -1192,20 +1195,18 @@ async fn rebalance(shards: &[Arc<Shard>], id: NodeId, peers: &PeerBook) {
         if mine <= fair {
             return;
         }
-        let book = peers.lock().unwrap().clone();
-        let live = |v: &NodeId| book.get(v).is_some_and(|(_, at)| at.elapsed() < Duration::from_secs(2));
         let target = voters
             .iter()
             .copied()
-            .filter(|v| *v != id && live(v))
+            .filter(|v| *v != id && live.contains_key(v) && s.ladder.is_candidate(*v))
             .min_by_key(|v| (counts.get(v).copied().unwrap_or(0), *v));
         if let Some(target) = target
             && counts.get(&target).copied().unwrap_or(0) + 1 < mine
-            && caught_up(&m, target, since_last_write)
+            && idle_and_caught_up(&m, target, since_last_write)
         {
             s.wake().await;
             tracing::info!(shard = s.id, from = id, to = target, "balancing leadership");
-            let _ = s.raft.trigger().transfer_leader(target).await;
+            start_transfer(s, target);
             *counts.entry(target).or_default() += 1;
             *counts.entry(id).or_default() -= 1;
             transfers += 1;
@@ -1262,17 +1263,12 @@ async fn housekeeping(
                 && s.ladder.may_hand_off()
             {
                 let m = s.raft.metrics().borrow_watched().clone();
-                let target = m
-                    .membership_config
-                    .membership()
-                    .voter_ids()
-                    .find(|v| *v != id && s.ladder.datacenter_of(*v).as_deref() == Some(dc.as_str()));
-                let since_last_write = s.activity.lock().unwrap().last_write.elapsed();
-                if let Some(target) =
-                    target.filter(|t| caught_up(&m, *t, since_last_write.max(quorium_core::ladder::TRANSFER_IDLE)))
-                {
+                let target = m.membership_config.membership().voter_ids().find(|v| {
+                    *v != id && s.ladder.is_candidate(*v) && s.ladder.datacenter_of(*v).as_deref() == Some(dc.as_str())
+                });
+                if let Some(target) = target.filter(|t| handoff::target_caught_up(&m, *t)) {
                     tracing::info!(shard = s.id, from = id, to = target, datacenter = %dc, "following the writer");
-                    let _ = s.raft.trigger().transfer_leader(target).await;
+                    start_transfer(s, target);
                 }
             }
         }

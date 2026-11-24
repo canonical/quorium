@@ -53,6 +53,8 @@ pub(crate) struct Shard {
     heartbeat: std::time::Duration,
     nudges: Throttle,
     epoch: Instant,
+    pub(crate) gate: crate::gate::WriteGate,
+    pub(crate) transfer_budget: std::time::Duration,
 }
 
 impl Shard {
@@ -76,6 +78,8 @@ impl Shard {
             heartbeat: timings.heartbeat,
             nudges: Throttle::new(timings.heartbeat / 2),
             epoch: now,
+            gate: crate::gate::WriteGate::default(),
+            transfer_budget: timings.leader_lease * 2 + timings.ladder.max_campaign,
         }
     }
 
@@ -151,6 +155,10 @@ fn failed(e: impl std::fmt::Display) -> Response {
 const LEASE_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
 
 pub(crate) async fn local_write(shard: &Shard, cmd: Command, origin: Option<String>) -> Response {
+    let _pass = match shard.gate.enter(shard.write_wait).await {
+        Ok(pass) => pass,
+        Err(crate::gate::Refused::Held) => return Response::NotLeader { leader: None, addr: None },
+    };
     shard.wake().await;
     let position = cmd.position();
     let deadline = Instant::now() + shard.write_wait;
