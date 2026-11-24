@@ -225,6 +225,7 @@ pub struct FailoverConfig {
     pub nodes: Vec<(NodeId, String)>,
     pub inter_dc: Option<LinkConfig>,
     pub warmup: Duration,
+    pub timing: quorium_core::config::TimingConfig,
 }
 
 impl FailoverConfig {
@@ -236,6 +237,7 @@ impl FailoverConfig {
                 .collect(),
             inter_dc: None,
             warmup: Duration::from_millis(1_000),
+            timing: Default::default(),
         }
     }
 
@@ -252,6 +254,7 @@ impl FailoverConfig {
                 duplicate: 0.0,
             }),
             warmup: Duration::from_millis(1_500),
+            timing: Default::default(),
         }
     }
 }
@@ -260,6 +263,7 @@ pub fn failover_sample(seed: u64, cfg: &FailoverConfig) -> Option<Duration> {
     let nodes: Vec<(NodeId, &str)> = cfg.nodes.iter().map(|(id, dc)| (*id, dc.as_str())).collect();
     let mut cluster_cfg = ClusterConfig::new(seed, &nodes);
     cluster_cfg.inter_dc = cfg.inter_dc.clone();
+    cluster_cfg.timing = cfg.timing.clone();
     let mut cluster = SimCluster::new(cluster_cfg);
     cluster.run_for(cfg.warmup);
     cluster.write("before", 1).ok()?;

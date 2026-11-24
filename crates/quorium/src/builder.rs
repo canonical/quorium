@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use quorium_core::config::{TimingConfig, TimingError};
 use quorium_core::ladder::LadderConfig;
 use quorium_net::tls::TlsConfig;
 
@@ -20,6 +21,7 @@ pub enum StartError {
     Storage(String),
     Raft(String),
     UnknownType(String),
+    Timing(TimingError),
 }
 
 impl fmt::Display for StartError {
@@ -33,11 +35,18 @@ impl fmt::Display for StartError {
             StartError::Storage(e) => write!(f, "storage error: {e}"),
             StartError::Raft(e) => write!(f, "consensus error: {e}"),
             StartError::UnknownType(t) => write!(f, "stored state type {t} is not registered in this binary"),
+            StartError::Timing(e) => write!(f, "timing conflict: {e}"),
         }
     }
 }
 
 impl std::error::Error for StartError {}
+
+impl From<TimingError> for StartError {
+    fn from(e: TimingError) -> Self {
+        StartError::Timing(e)
+    }
+}
 
 impl From<io::Error> for StartError {
     fn from(e: io::Error) -> Self {
@@ -64,16 +73,15 @@ pub struct Builder {
     pub(crate) tls: Option<TlsConfig>,
     pub(crate) plaintext: bool,
     pub(crate) single_node: bool,
-    pub(crate) heartbeat: Duration,
+    pub(crate) timing: TimingConfig,
     pub(crate) checkpoint_every: Option<u64>,
     pub(crate) transport: crate::Transport,
     pub(crate) state_backend: StateBackend,
     pub(crate) ping: Duration,
-    pub(crate) ladder: LadderConfig,
     pub(crate) replacement_grace: Duration,
     pub(crate) shards: u64,
     pub(crate) quiesce_after: Option<Duration>,
-    pub(crate) handoff_suspend: Duration,
+    pub(crate) handoff_suspend: Option<Duration>,
     pub(crate) metrics_bind: Option<SocketAddr>,
     pub(crate) advertised_methods: Option<std::collections::BTreeSet<(String, u32)>>,
     pub(crate) rebalance: Option<(Duration, usize)>,
@@ -92,16 +100,15 @@ impl Default for Builder {
             tls: None,
             plaintext: false,
             single_node: false,
-            heartbeat: Duration::from_millis(50),
+            timing: TimingConfig::default(),
             checkpoint_every: None,
             transport: crate::Transport::default(),
             state_backend: StateBackend::default(),
             ping: Duration::from_millis(100),
-            ladder: LadderConfig::default(),
             replacement_grace: Duration::from_secs(600),
             shards: 1,
             quiesce_after: None,
-            handoff_suspend: Duration::from_secs(30),
+            handoff_suspend: None,
             metrics_bind: None,
             advertised_methods: None,
             rebalance: None,
@@ -187,7 +194,7 @@ impl Builder {
     }
 
     pub fn handoff_suspend(mut self, suspend: Duration) -> Self {
-        self.handoff_suspend = suspend;
+        self.handoff_suspend = Some(suspend);
         self
     }
 
@@ -217,11 +224,39 @@ impl Builder {
     }
 
     pub fn heartbeat(mut self, interval: Duration) -> Self {
-        self.heartbeat = interval;
+        self.timing.heartbeat = interval;
         self
     }
 
-    pub(crate) fn validate(&self) -> Result<(PathBuf, SocketAddr), StartError> {
+    pub fn leader_lease(mut self, lease: Duration) -> Self {
+        self.timing.leader_lease = Some(lease);
+        self
+    }
+
+    pub fn ladder(mut self, ladder: LadderConfig) -> Self {
+        self.timing.ladder = Some(ladder);
+        self
+    }
+
+    pub fn rpc_timeout(mut self, minimum: Duration) -> Self {
+        self.timing.rpc_timeout = minimum;
+        self
+    }
+
+    pub fn write_wait(mut self, wait: Duration) -> Self {
+        self.timing.write_wait = wait;
+        self
+    }
+
+    pub(crate) fn timings(&self) -> Result<quorium_core::config::Timings, TimingError> {
+        let mut timings = self.timing.derive()?;
+        if let Some(suspend) = self.handoff_suspend {
+            timings.ladder.handoff_suspend = suspend;
+        }
+        Ok(timings)
+    }
+
+    pub(crate) fn validate(&self) -> Result<(PathBuf, SocketAddr, quorium_core::config::Timings), StartError> {
         let dir = self.data_dir.clone().ok_or(StartError::MissingDataDir)?;
         let bind = self.bind.ok_or(StartError::MissingBind)?;
         if self.tls.is_none() && !self.plaintext {
@@ -230,7 +265,7 @@ impl Builder {
         if !self.single_node && self.replicas != 3 && self.replicas != 5 {
             return Err(StartError::InvalidReplicas(self.replicas));
         }
-        Ok((dir, bind))
+        Ok((dir, bind, self.timings()?))
     }
 
     pub async fn start(self) -> Result<Quorium, StartError> {

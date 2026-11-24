@@ -47,10 +47,11 @@ pub(crate) struct Shard {
     pub(crate) raft: NodeRaft,
     pub(crate) ladder: Ladder<TokioRuntime>,
     pub(crate) activity: Mutex<Activity>,
+    write_wait: std::time::Duration,
 }
 
 impl Shard {
-    pub(crate) fn new(id: u64, raft: NodeRaft, ladder: Ladder<TokioRuntime>) -> Shard {
+    pub(crate) fn new(id: u64, raft: NodeRaft, ladder: Ladder<TokioRuntime>, write_wait: std::time::Duration) -> Shard {
         let now = Instant::now();
         Shard {
             id,
@@ -66,6 +67,7 @@ impl Shard {
                 load_rate: 0,
                 samples: std::collections::VecDeque::with_capacity(LOAD_SAMPLES),
             }),
+            write_wait,
         }
     }
 
@@ -132,12 +134,10 @@ fn failed(e: impl std::fmt::Display) -> Response {
     Response::Failed(e.to_string())
 }
 
-const LEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
-
 pub(crate) async fn local_write(shard: &Shard, cmd: Command, origin: Option<String>) -> Response {
     shard.wake().await;
     let position = cmd.position();
-    let deadline = Instant::now() + LEASE_WAIT;
+    let deadline = Instant::now() + shard.write_wait;
     loop {
         match shard.raft.client_write(cmd.clone()).await {
             Ok(resp) if resp.data == quorium_core::kv::Reply::WrongShard => return Response::WrongShard,

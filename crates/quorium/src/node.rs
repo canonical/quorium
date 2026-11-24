@@ -9,7 +9,7 @@ use openraft::Raft;
 use openraft::async_runtime::watch::WatchReceiver;
 use openraft::impls::BasicNode;
 use openraft_rt_tokio::TokioRuntime;
-use quorium_core::config::raft_config;
+use quorium_core::config::Timings;
 use quorium_core::driver::Ladder;
 use quorium_core::kv::{Command, KvOp, Reply};
 use quorium_core::kv::{RouteOp, RoutingTable};
@@ -95,6 +95,7 @@ pub(crate) struct Inner {
     client: u64,
     sequencer: quorium_core::session::Sequencer,
     timeout: Duration,
+    timings: Timings,
 }
 
 #[derive(Clone)]
@@ -110,16 +111,15 @@ impl Quorium {
     }
 
     pub(crate) async fn start(b: Builder) -> Result<Quorium, StartError> {
-        let (dir, bind) = b.validate()?;
+        let (dir, bind, timings) = b.validate()?;
         std::fs::create_dir_all(&dir)?;
         let id = node_id(&dir)?;
         let advertise = b.advertise.unwrap_or(bind);
         let disk = FileDisk::open(&dir.join("wal"))?;
         let wal = SharedWal::<TokioRuntime, FileDisk>::open(disk).map_err(|e| StartError::Storage(e.to_string()))?;
-        let network = TcpNetwork::with_protocol(id, b.tls.clone(), b.transport);
-        let mut ladder_config = quorium_core::config::ladder_for(b.heartbeat, &b.ladder);
-        ladder_config.handoff_suspend = b.handoff_suspend;
-        let mut config = raft_config(b.heartbeat, &ladder_config);
+        let network = TcpNetwork::with_protocol(id, b.tls.clone(), b.transport).with_rpc_floor(timings.rpc_timeout);
+        let ladder_config = timings.ladder.clone();
+        let mut config = timings.raft_config();
         if let Some(n) = b.checkpoint_every {
             config.snapshot_policy = openraft::SnapshotPolicy::LogsSinceLast(n);
             config.max_in_snapshot_log_to_keep = config.max_in_snapshot_log_to_keep.min(n);
@@ -162,7 +162,7 @@ impl Quorium {
             let dcs: BTreeMap<NodeId, String> = [(id, b.datacenter.clone())].into();
             let ladder =
                 Ladder::<TokioRuntime>::for_shard(ladder_config.clone(), id, dcs, Duration::from_millis(10), s);
-            shards.push(Arc::new(Shard::new(s, raft, ladder)));
+            shards.push(Arc::new(Shard::new(s, raft, ladder, timings.write_wait)));
         }
         let shards = Arc::new(shards);
         let peers: PeerBook = Arc::default();
@@ -238,6 +238,7 @@ impl Quorium {
                 client: rand::random::<u64>() >> 1,
                 sequencer: quorium_core::session::Sequencer::default(),
                 timeout: Duration::from_secs(5),
+                timings: timings.clone(),
             }),
         };
         let weak = Arc::downgrade(&node.inner);
@@ -256,7 +257,7 @@ impl Quorium {
         });
         node.inner.tasks.lock().unwrap().push(settle);
         let weak = Arc::downgrade(&node.inner);
-        let heartbeat = b.heartbeat;
+        let heartbeat = timings.heartbeat;
         let disks = tokio::spawn(async move {
             let mut warned: Option<Instant> = None;
             loop {
@@ -522,6 +523,16 @@ impl Quorium {
             .entry((type_name.to_string(), key.to_vec()))
             .or_insert_with(|| tokio::sync::watch::channel(None).0)
             .subscribe()
+    }
+
+    pub fn timings(&self) -> Timings {
+        self.inner.timings.clone()
+    }
+
+    pub fn failover_estimate(&self) -> quorium_core::config::FailoverEstimate {
+        let voters = self.membership().voters.len();
+        let round_trip = self.inner.shards.iter().map(|s| s.ladder.consensus_round_trip()).max().unwrap_or_default();
+        self.inner.timings.failover_estimate(voters, round_trip)
     }
 
     pub fn shards(&self) -> u64 {

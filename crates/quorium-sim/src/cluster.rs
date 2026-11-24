@@ -14,9 +14,9 @@ use openraft::raft::{
     VoteRequest, VoteResponse,
 };
 use openraft::{AsyncRuntime, Config, Raft, ReadPolicy, ServerState};
+use quorium_core::config::{TimingConfig, TimingError, Timings};
 use quorium_core::driver::Ladder;
 use quorium_core::kv::{Command, KvOp, Reply};
-use quorium_core::ladder::LadderConfig;
 use quorium_core::types::{NodeId, Types};
 use quorium_store::mem::{KvStateMachine, MemLog, MemSnapshotStore};
 
@@ -55,9 +55,8 @@ pub struct ClusterConfig {
     pub nodes: Vec<(NodeId, String)>,
     pub link: LinkConfig,
     pub fsync: Duration,
-    pub ladder: LadderConfig,
+    pub timing: TimingConfig,
     pub tick: Duration,
-    pub heartbeat: Duration,
     pub ping: Duration,
     pub ladder_enabled: bool,
     pub fsync_overrides: Vec<(NodeId, Duration)>,
@@ -77,9 +76,8 @@ impl ClusterConfig {
             nodes: nodes.iter().map(|(id, dc)| (*id, dc.to_string())).collect(),
             link: LinkConfig::default(),
             fsync: Duration::from_millis(2),
-            ladder: LadderConfig::default(),
+            timing: TimingConfig::default(),
             tick: Duration::from_millis(5),
-            heartbeat: Duration::from_millis(50),
             ping: Duration::from_millis(100),
             ladder_enabled: true,
             fsync_overrides: Vec::new(),
@@ -246,26 +244,30 @@ impl Router {
     }
 }
 
-fn consensus_deadline(option: &RPCOption) -> Duration {
-    option.hard_ttl().max(Duration::from_secs(1))
-}
-
 struct NetFactory {
     from: NodeId,
     router: Router,
+    timings: Arc<Timings>,
 }
 
 struct Conn {
     from: NodeId,
     to: NodeId,
     router: Router,
+    timings: Arc<Timings>,
+}
+
+impl Conn {
+    fn consensus_deadline(&self, option: &RPCOption) -> Duration {
+        self.timings.consensus_deadline(option.hard_ttl())
+    }
 }
 
 impl RaftNetworkFactory<C> for NetFactory {
     type Network = Conn;
 
     async fn new_client(&mut self, target: NodeId, _node: &BasicNode) -> Conn {
-        Conn { from: self.from, to: target, router: self.router.clone() }
+        Conn { from: self.from, to: target, router: self.router.clone(), timings: self.timings.clone() }
     }
 }
 
@@ -279,7 +281,7 @@ impl RaftNetworkV2<C> for Conn {
     ) -> Result<AppendEntriesResponse<C>, RPCError<C>> {
         self.router.count(|c| c.append += 1);
         self.router
-            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
+            .call_within(self.consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_append(&rpc.vote);
                 raft.append_entries(rpc).await.ok()
             })
@@ -290,7 +292,7 @@ impl RaftNetworkV2<C> for Conn {
     async fn vote(&mut self, rpc: VoteRequest<C>, option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
         self.router.count(|c| c.vote += 1);
         self.router
-            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
+            .call_within(self.consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_pre_vote(&rpc);
                 raft.vote(rpc).await.ok()
             })
@@ -301,7 +303,7 @@ impl RaftNetworkV2<C> for Conn {
     async fn pre_vote(&mut self, rpc: VoteRequest<C>, option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
         self.router.count(|c| c.pre_vote += 1);
         self.router
-            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
+            .call_within(self.consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_pre_vote(&rpc);
                 raft.pre_vote(rpc).await.ok()
             })
@@ -331,7 +333,7 @@ impl RaftNetworkV2<C> for Conn {
         option: RPCOption,
     ) -> Result<TransferLeaderResponse<C>, RPCError<C>> {
         self.router
-            .call_within(consensus_deadline(&option), self.from, self.to, |raft, _| async move {
+            .call_within(self.consensus_deadline(&option), self.from, self.to, |raft, _| async move {
                 raft.handle_transfer_leader(req).await.ok()
             })
             .await
@@ -358,6 +360,7 @@ pub struct SimCluster {
     logs: BTreeMap<NodeId, NodeStore>,
     checks: Arc<Mutex<Checks>>,
     raft_config: Arc<Config>,
+    timings: Arc<Timings>,
     next_client: u64,
     quiesced: bool,
     snapshots: BTreeMap<NodeId, MemSnapshotStore>,
@@ -373,6 +376,11 @@ fn decode(v: &[u8]) -> Option<u64> {
 
 impl SimCluster {
     pub fn new(config: ClusterConfig) -> Self {
+        Self::try_new(config).expect("simulated cluster timings are consistent")
+    }
+
+    pub fn try_new(config: ClusterConfig) -> Result<Self, TimingError> {
+        let timings = Arc::new(config.timing.derive()?);
         let mut rt = SimRuntime::with_seed(config.seed);
         let mut rng = SimRng::new(config.seed);
         let router = Router {
@@ -384,7 +392,7 @@ impl SimCluster {
                 paused: BTreeMap::new(),
             })),
         };
-        let mut raft_config = quorium_core::config::raft_config(config.heartbeat, &config.ladder);
+        let mut raft_config = timings.raft_config();
         if let Some(n) = config.snapshot_every {
             raft_config.snapshot_policy = openraft::SnapshotPolicy::LogsSinceLast(n);
             raft_config.max_in_snapshot_log_to_keep = n / 2;
@@ -427,6 +435,7 @@ impl SimCluster {
             logs,
             checks: Arc::new(Mutex::new(Checks::default())),
             raft_config,
+            timings,
             next_client: 1,
             quiesced: false,
             snapshots: BTreeMap::new(),
@@ -450,7 +459,11 @@ impl SimCluster {
         let members: BTreeMap<NodeId, BasicNode> = ids.iter().map(|id| (*id, BasicNode::new(id.to_string()))).collect();
         let first = cluster.raft(ids[0]).expect("first node is up");
         cluster.rt.block_on(async move { first.initialize(members).await.expect("cluster initializes") });
-        cluster
+        Ok(cluster)
+    }
+
+    pub fn timings(&self) -> &Timings {
+        &self.timings
     }
 
     fn datacenters(&self) -> BTreeMap<NodeId, String> {
@@ -498,9 +511,9 @@ impl SimCluster {
             };
             checks.lock().unwrap().state_machine.observe_apply(id, index, hash);
         }));
-        let factory = NetFactory { from: id, router: self.router.clone() };
+        let factory = NetFactory { from: id, router: self.router.clone(), timings: self.timings.clone() };
         let config = self.raft_config.clone();
-        let ladder = Ladder::<SimRuntime>::new(self.config.ladder.clone(), id, self.datacenters(), self.config.tick);
+        let ladder = Ladder::<SimRuntime>::new(self.timings.ladder.clone(), id, self.datacenters(), self.config.tick);
         let started = match &self.logs[&id] {
             NodeStore::Mem(log) => {
                 let log = log.clone();

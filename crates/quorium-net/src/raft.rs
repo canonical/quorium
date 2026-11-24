@@ -223,6 +223,7 @@ pub struct TcpNetwork {
     peers: PeerTable,
     by_addr: Arc<Mutex<HashMap<String, Arc<Peer>>>>,
     appends: Arc<std::sync::atomic::AtomicU64>,
+    rpc_floor: Duration,
 }
 
 impl TcpNetwork {
@@ -231,7 +232,20 @@ impl TcpNetwork {
     }
 
     pub fn with_protocol(me: NodeId, tls: Option<TlsConfig>, protocol: Protocol) -> Self {
-        Self { me, shard: 0, tls, protocol, peers: Arc::default(), by_addr: Arc::default(), appends: Arc::default() }
+        Self {
+            me,
+            shard: 0,
+            tls,
+            protocol,
+            peers: Arc::default(),
+            by_addr: Arc::default(),
+            appends: Arc::default(),
+            rpc_floor: DEFAULT_RPC_FLOOR,
+        }
+    }
+
+    pub fn with_rpc_floor(self, floor: Duration) -> Self {
+        Self { rpc_floor: floor, ..self }
     }
 
     pub fn for_shard(&self, shard: u64) -> TcpNetwork {
@@ -327,6 +341,7 @@ pub struct PeerConn {
     shard: u64,
     clients: Result<Arc<PeerClients>, RpcError>,
     appends: Arc<std::sync::atomic::AtomicU64>,
+    rpc_floor: Duration,
 }
 
 fn rpc_error(e: RpcError) -> RPCError<ProdTypes> {
@@ -344,7 +359,7 @@ fn unexpected(r: Response) -> RPCError<ProdTypes> {
 impl PeerConn {
     async fn consensus(&self, request: Request, option: &RPCOption) -> Result<Response, RPCError<ProdTypes>> {
         let clients = self.clients.as_ref().map_err(|e| rpc_error(e.clone()))?;
-        call(&clients.consensus, self.me, self.shard, request, option.hard_ttl().max(MIN_RPC_TTL))
+        call(&clients.consensus, self.me, self.shard, request, option.hard_ttl().max(self.rpc_floor))
             .await
             .map_err(rpc_error)
     }
@@ -359,13 +374,14 @@ impl RaftNetworkFactory<ProdTypes> for TcpNetwork {
             shard: self.shard,
             clients: self.clients(target, &node.addr),
             appends: self.appends.clone(),
+            rpc_floor: self.rpc_floor,
         }
     }
 }
 
 pub const APPEND_BYTE_BUDGET: usize = 4 << 20;
 
-pub const MIN_RPC_TTL: Duration = Duration::from_secs(1);
+pub const DEFAULT_RPC_FLOOR: Duration = Duration::from_secs(1);
 
 pub fn limit_append(
     mut rpc: AppendEntriesRequest<ProdTypes>,

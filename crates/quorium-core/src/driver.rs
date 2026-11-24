@@ -148,6 +148,10 @@ impl<RT: AsyncRuntime> Ladder<RT> {
         self.shared.lock().unwrap().controller.on_round_trip(peer, rtt);
     }
 
+    pub fn consensus_round_trip(&self) -> Duration {
+        self.shared.lock().unwrap().controller.consensus_round_trip()
+    }
+
     pub fn slowest_round_trip(&self) -> Option<(NodeId, Duration)> {
         self.shared.lock().unwrap().controller.slowest_round_trip()
     }

@@ -59,3 +59,37 @@ fn a_leadership_transfer_settles_quickly_across_regions() {
         assert!(cluster.term() <= before + 3, "seed {seed}: terms rose from {before} to {}", cluster.term());
     }
 }
+
+fn worst_round_trip(cfg: &FailoverConfig) -> Duration {
+    let link = cfg.inter_dc.clone().unwrap_or_default();
+    link.max_latency * 2 + Duration::from_millis(2)
+}
+
+fn assert_within_estimate(cfg: &FailoverConfig, seeds: std::ops::Range<u64>) {
+    let timings = cfg.timing.derive().unwrap();
+    let estimate = timings.failover_estimate(cfg.nodes.len(), worst_round_trip(cfg));
+    let samples = failover_samples(cfg, seeds);
+    assert!(!samples.is_empty());
+    let worst = samples.iter().max().copied().unwrap();
+    assert!(worst <= estimate.total, "worst failover {worst:?} exceeds the estimate {estimate:?}");
+}
+
+#[test]
+fn failover_stays_within_the_estimate_in_one_region() {
+    assert_within_estimate(&FailoverConfig::single_region(), 0..100);
+}
+
+#[test]
+fn failover_stays_within_the_estimate_across_regions() {
+    assert_within_estimate(&FailoverConfig::three_regions(), 0..100);
+}
+
+#[test]
+fn failover_stays_within_the_estimate_with_a_slow_heartbeat() {
+    let cfg = FailoverConfig {
+        timing: quorium_core::config::TimingConfig { heartbeat: Duration::from_millis(500), ..Default::default() },
+        warmup: Duration::from_secs(5),
+        ..FailoverConfig::single_region()
+    };
+    assert_within_estimate(&cfg, 0..50);
+}
