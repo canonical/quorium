@@ -13,7 +13,7 @@ Quorium is published to crates.io as six crates sharing one version, set in `[wo
 
 `quorium-sim` is published because the `testing` feature of `quorium` depends on it. `xtask`, `rig` and `shop` set `publish = false`.
 
-Internal dependencies are pinned exactly (`=0.1.0-alpha.1`), so the six crates are always used at the same version. `crates/quorium-sim/spec` and the `LICENSE-*` files in each crate are symlinks to the repository root; cargo packages the files they point to.
+Internal dependencies are pinned exactly (`=0.1.0-alpha.2`), so the six crates are always used at the same version. `crates/quorium-sim/spec` and the `LICENSE-*` files in each crate are symlinks to the repository root; cargo packages the files they point to.
 
 ## Steps
 

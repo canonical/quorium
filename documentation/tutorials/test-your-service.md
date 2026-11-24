@@ -11,7 +11,7 @@ Add this to `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
-quorium = { version = "0.1.0-alpha.1", features = ["testing"] }
+quorium = { version = "0.1.0-alpha.2", features = ["testing"] }
 ```
 
 The `testing` feature adds the `quorium::testing` module. It is only needed by tests.

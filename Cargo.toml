@@ -4,7 +4,7 @@ members = ["crates/*", "xtask", "examples/*"]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -14,11 +14,11 @@ keywords = ["raft", "consensus", "distributed", "replication", "embedded"]
 categories = ["database-implementations", "concurrency", "network-programming"]
 
 [workspace.dependencies]
-quorium-core = { path = "crates/quorium-core", version = "=0.1.0-alpha.1" }
-quorium-sim = { path = "crates/quorium-sim", version = "=0.1.0-alpha.1" }
-quorium-store = { path = "crates/quorium-store", version = "=0.1.0-alpha.1" }
-quorium-net = { path = "crates/quorium-net", version = "=0.1.0-alpha.1" }
-quorium-macros = { path = "crates/quorium-macros", version = "=0.1.0-alpha.1" }
+quorium-core = { path = "crates/quorium-core", version = "=0.1.0-alpha.2" }
+quorium-sim = { path = "crates/quorium-sim", version = "=0.1.0-alpha.2" }
+quorium-store = { path = "crates/quorium-store", version = "=0.1.0-alpha.2" }
+quorium-net = { path = "crates/quorium-net", version = "=0.1.0-alpha.2" }
+quorium-macros = { path = "crates/quorium-macros", version = "=0.1.0-alpha.2" }
 openraft = { version = "=0.10.0-alpha.37", default-features = false, features = ["serde", "type-alias", "metrics-logids"] }
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"

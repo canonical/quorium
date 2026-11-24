@@ -4,7 +4,7 @@ The `quorium::testing` module needs the `testing` feature. Enable it for tests o
 
 ```toml
 [dev-dependencies]
-quorium = { version = "0.1.0-alpha.1", features = ["testing"] }
+quorium = { version = "0.1.0-alpha.2", features = ["testing"] }
 ```
 
 ## `Cluster`

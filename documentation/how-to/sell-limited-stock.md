@@ -65,7 +65,7 @@ A sale is acknowledged only after a second node in the same datacenter has recor
 
 `try_take` returns `Error::Unavailable` when the copy peer does not confirm a sale. Nothing was sold in that case, so retrying is safe.
 
-## Known issue in 0.1.0-alpha.1
+## Known issue in 0.1.0-alpha.2
 
 A node that crashes while asking the cluster for a grant can strand that grant's units. Sales never exceed stock, but the counter can stop short of selling all of it. See [Known limitations](../explanation/limitations.md).
 

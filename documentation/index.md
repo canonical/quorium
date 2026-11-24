@@ -39,7 +39,7 @@ Understand how Quorium works and why. Start with the [architecture](explanation/
 
 ## Status
 
-Quorium is alpha software (`0.1.0-alpha.1`). The API will change before 1.0. Read [Known limitations](explanation/limitations.md) before you depend on it.
+Quorium is alpha software (`0.1.0-alpha.2`). The API will change before 1.0. Read [Known limitations](explanation/limitations.md) before you depend on it.
 
 ## Project
 

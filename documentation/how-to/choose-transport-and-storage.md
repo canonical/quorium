@@ -17,7 +17,7 @@ use quorium::Transport;
 
 Every node of a cluster, and every remote client, must use the same transport. QUIC needs the port open for UDP; TCP needs it open for TCP.
 
-To build without QUIC at all, disable default features: `quorium = { version = "0.1.0-alpha.1", default-features = false }`. TCP is then the default.
+To build without QUIC at all, disable default features: `quorium = { version = "0.1.0-alpha.2", default-features = false }`. TCP is then the default.
 
 ## Storage backend
 
@@ -27,7 +27,7 @@ To build without QUIC at all, disable default features: `quorium = { version = "
 | fjall | Write-heavy workloads or very large datasets, where an LSM tree's write pattern helps |
 
 ```toml
-quorium = { version = "0.1.0-alpha.1", features = ["fjall"] }
+quorium = { version = "0.1.0-alpha.2", features = ["fjall"] }
 ```
 
 ```rust

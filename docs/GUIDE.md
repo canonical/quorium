@@ -6,7 +6,7 @@ Quorium is an embedded Rust library. Every instance of your service is a cluster
 
 ```toml
 [dependencies]
-quorium = "0.1.0-alpha.1"
+quorium = "0.1.0-alpha.2"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 ```

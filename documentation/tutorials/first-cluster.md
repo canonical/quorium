@@ -15,7 +15,7 @@ Replace the `[dependencies]` section of `Cargo.toml` with:
 
 ```toml
 [dependencies]
-quorium = "0.1.0-alpha.1"
+quorium = "0.1.0-alpha.2"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 ```

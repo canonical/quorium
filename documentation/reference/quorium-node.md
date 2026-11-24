@@ -3,7 +3,7 @@
 A bare node with no state types of its own, for experiments with the key-value space and for checking a deployment. It is built from `crates/quorium/src/bin/quorium-node.rs`.
 
 ```sh
-cargo install quorium --version 0.1.0-alpha.1 --bin quorium-node
+cargo install quorium --version 0.1.0-alpha.2 --bin quorium-node
 quorium-node --data-dir d1 --bind 127.0.0.1:7001 --seeds 127.0.0.1:7001,127.0.0.1:7002,127.0.0.1:7003 --insecure-plaintext
 ```
 

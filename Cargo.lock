@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "doc-snippets"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "futures",
  "postcard",
@@ -798,7 +798,7 @@ checksum = "17e2ac29387b1aa07a1e448f7bb4f35b500787971e965b02842b900afa5c8f6f"
 
 [[package]]
 name = "guestbook"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "quorium",
  "serde",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "quorium"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "crc32fast",
  "futures",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "criterion",
  "linkme",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-macros"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-net"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "criterion",
  "futures",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-sim"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "openraft",
  "openraft-rt",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "quorium-store"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "crc32fast",
  "criterion",
@@ -1664,7 +1664,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rig"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "futures",
  "quorium",
@@ -1907,7 +1907,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "shop"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "futures",
  "quorium",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "quorium-sim",
  "serde",

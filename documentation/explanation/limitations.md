@@ -1,6 +1,6 @@
 # Known limitations
 
-Quorium `0.1.0-alpha.1` is an early release. These are the limitations known today.
+Quorium `0.1.0-alpha.2` is an early release. These are the limitations known today.
 
 ## Escrow can strand units after a crash
 

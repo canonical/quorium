@@ -9,7 +9,8 @@ This is an early release. The API will change before 1.0, and the on-disk and wi
 Known issues in this release:
 
 - A node that crashes while asking for an escrow grant can strand the units of that grant. Escrow counters never oversell, but they may stop short of the full stock. A fix is in progress.
-- Leader failover takes about 650 ms at p99 on local disks, and several seconds on slow network disks.
+- Leader failover takes about 650 ms at p99 on local disks, and several seconds on slow network disks. Planned restarts avoid failover with `shutdown_gracefully`.
+- A node stopped within about 10 seconds of starting can take up to 10 seconds to shut down.
 - Quorium depends on a pre-release of openraft, pinned to `=0.10.0-alpha.37`.
 
 ## Example
