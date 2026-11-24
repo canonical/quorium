@@ -49,6 +49,20 @@ impl Default for LadderConfig {
     }
 }
 
+impl LadderConfig {
+    pub fn step_for(&self, round_trip: Duration) -> Duration {
+        self.step.max(round_trip)
+    }
+
+    pub fn campaign_timeout_for(&self, round_trip: Duration) -> Duration {
+        self.campaign_timeout.max(round_trip * 3)
+    }
+
+    pub fn max_campaign_for(&self, round_trip: Duration) -> Duration {
+        self.max_campaign.max(round_trip * 6)
+    }
+}
+
 pub const TRANSFER_IDLE: Duration = Duration::from_secs(2);
 
 pub fn transfer_ready(since_last_write: Duration, target_matched: Option<u64>, leader_last: Option<u64>) -> bool {
@@ -201,7 +215,7 @@ impl Controller {
     }
 
     fn step(&self) -> Duration {
-        self.config.step.max(self.consensus_round_trip())
+        self.config.step_for(self.consensus_round_trip())
     }
 
     pub fn campaign_ends(&self) -> Option<Duration> {
@@ -212,11 +226,11 @@ impl Controller {
     }
 
     fn campaign_timeout(&self) -> Duration {
-        self.config.campaign_timeout.max(self.consensus_round_trip() * 3)
+        self.config.campaign_timeout_for(self.consensus_round_trip())
     }
 
     fn max_campaign(&self) -> Duration {
-        self.config.max_campaign.max(self.consensus_round_trip() * 6)
+        self.config.max_campaign_for(self.consensus_round_trip())
     }
 
     pub fn election_base(&self) -> Duration {
