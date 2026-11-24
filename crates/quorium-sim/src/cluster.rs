@@ -142,6 +142,7 @@ pub struct RpcCounts {
     pub append: u64,
     pub vote: u64,
     pub pre_vote: u64,
+    pub snapshot: u64,
 }
 
 struct RouterInner {
@@ -199,6 +200,23 @@ impl Router {
         inner.nodes.get(&to).map(|n| (n.raft.clone(), n.ladder.clone()))
     }
 
+    async fn call_within<T, F, Fut>(
+        &self,
+        deadline: Duration,
+        from: NodeId,
+        to: NodeId,
+        f: F,
+    ) -> Result<T, Unreachable<C>>
+    where
+        T: Send,
+        F: FnOnce(SimRaft, Ladder<SimRuntime>) -> Fut + Send,
+        Fut: Future<Output = Option<T>> + Send,
+    {
+        SimRuntime::timeout(deadline, self.call(from, to, f))
+            .await
+            .unwrap_or_else(|_| Err(unreachable("deadline passed")))
+    }
+
     async fn call<T, F, Fut>(&self, from: NodeId, to: NodeId, f: F) -> Result<T, Unreachable<C>>
     where
         F: FnOnce(SimRaft, Ladder<SimRuntime>) -> Fut,
@@ -228,6 +246,10 @@ impl Router {
     }
 }
 
+fn consensus_deadline(option: &RPCOption) -> Duration {
+    option.hard_ttl().max(Duration::from_secs(1))
+}
+
 struct NetFactory {
     from: NodeId,
     router: Router,
@@ -253,11 +275,11 @@ impl RaftNetworkV2<C> for Conn {
     async fn append_entries(
         &mut self,
         rpc: AppendEntriesRequest<C>,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<AppendEntriesResponse<C>, RPCError<C>> {
         self.router.count(|c| c.append += 1);
         self.router
-            .call(self.from, self.to, |raft, ladder| async move {
+            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_append(&rpc.vote);
                 raft.append_entries(rpc).await.ok()
             })
@@ -265,10 +287,10 @@ impl RaftNetworkV2<C> for Conn {
             .map_err(RPCError::Unreachable)
     }
 
-    async fn vote(&mut self, rpc: VoteRequest<C>, _option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
+    async fn vote(&mut self, rpc: VoteRequest<C>, option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
         self.router.count(|c| c.vote += 1);
         self.router
-            .call(self.from, self.to, |raft, ladder| async move {
+            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_pre_vote(&rpc);
                 raft.vote(rpc).await.ok()
             })
@@ -276,10 +298,10 @@ impl RaftNetworkV2<C> for Conn {
             .map_err(RPCError::Unreachable)
     }
 
-    async fn pre_vote(&mut self, rpc: VoteRequest<C>, _option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
+    async fn pre_vote(&mut self, rpc: VoteRequest<C>, option: RPCOption) -> Result<VoteResponse<C>, RPCError<C>> {
         self.router.count(|c| c.pre_vote += 1);
         self.router
-            .call(self.from, self.to, |raft, ladder| async move {
+            .call_within(consensus_deadline(&option), self.from, self.to, |raft, ladder| async move {
                 ladder.observe_pre_vote(&rpc);
                 raft.pre_vote(rpc).await.ok()
             })
@@ -292,10 +314,13 @@ impl RaftNetworkV2<C> for Conn {
         vote: VoteOf<C>,
         snapshot: SnapshotOf<C, Vec<u8>>,
         _cancel: impl Future<Output = ReplicationClosed> + Send + 'static,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<SnapshotResponse<C>, StreamingError<C>> {
+        self.router.count(|c| c.snapshot += 1);
         self.router
-            .call(self.from, self.to, |raft, _| async move { raft.install_full_snapshot(vote, snapshot).await.ok() })
+            .call_within(option.hard_ttl(), self.from, self.to, |raft, _| async move {
+                raft.install_full_snapshot(vote, snapshot).await.ok()
+            })
             .await
             .map_err(StreamingError::Unreachable)
     }
@@ -303,10 +328,12 @@ impl RaftNetworkV2<C> for Conn {
     async fn transfer_leader(
         &mut self,
         req: TransferLeaderRequest<C>,
-        _option: RPCOption,
+        option: RPCOption,
     ) -> Result<TransferLeaderResponse<C>, RPCError<C>> {
         self.router
-            .call(self.from, self.to, |raft, _| async move { raft.handle_transfer_leader(req).await.ok() })
+            .call_within(consensus_deadline(&option), self.from, self.to, |raft, _| async move {
+                raft.handle_transfer_leader(req).await.ok()
+            })
             .await
             .map_err(RPCError::Unreachable)
     }
