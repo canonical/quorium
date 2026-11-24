@@ -760,6 +760,18 @@ impl SimCluster {
         }
     }
 
+    pub fn stand_aside(&mut self, id: NodeId, duration: Duration) {
+        let entries: Vec<(NodeId, Ladder<SimRuntime>)> =
+            self.node_ids().into_iter().filter_map(|n| self.router.target(n).map(|(_, l)| (n, l))).collect();
+        for (n, ladder) in entries {
+            if n == id {
+                ladder.stand_aside(duration);
+            } else {
+                ladder.observe_stand_aside(id, duration);
+            }
+        }
+    }
+
     pub fn quiesce(&mut self, on: bool) {
         self.quiesced = on;
         let entries: Vec<(SimRaft, Ladder<SimRuntime>)> =

@@ -93,3 +93,42 @@ fn failover_stays_within_the_estimate_with_a_slow_heartbeat() {
     };
     assert_within_estimate(&cfg, 0..50);
 }
+
+#[test]
+fn a_leader_that_stands_aside_and_hands_off_leaves_no_election_behind() {
+    let nodes = [(1, "a"), (2, "b"), (3, "c")];
+    for seed in 0..30 {
+        let mut cluster = quorium_sim::cluster::SimCluster::new(quorium_sim::cluster::ClusterConfig::new(seed, &nodes));
+        cluster.run_for(Duration::from_secs(2));
+        cluster.spawn_clients(3, 5, Duration::from_millis(20), Duration::from_secs(60), seed);
+        cluster.run_for(Duration::from_millis(500));
+        let old = cluster.leader().expect("a leader");
+        let target = nodes.iter().map(|(id, _)| *id).find(|id| *id != old).unwrap();
+        cluster.stand_aside(old, Duration::from_secs(60));
+        cluster.transfer_leader(target);
+        assert_eq!(cluster.run_until_leader_other_than(old, Duration::from_secs(2)), Some(target), "seed {seed}");
+        let handed_off = cluster.now();
+        cluster.run_for(Duration::from_millis(200));
+        cluster.crash(old);
+        cluster.run_for(Duration::from_secs(5));
+        assert_eq!(cluster.leader(), Some(target), "seed {seed}");
+        assert_eq!(cluster.elections_started_since(handed_off), 0, "seed {seed}");
+        assert!(cluster.violations().is_empty(), "seed {seed}: {:?}", cluster.violations());
+    }
+}
+
+#[test]
+fn a_standing_aside_node_is_skipped_when_the_leader_fails() {
+    let nodes = [(1, "a"), (2, "a"), (3, "b")];
+    for seed in 0..30 {
+        let mut cluster = quorium_sim::cluster::SimCluster::new(quorium_sim::cluster::ClusterConfig::new(seed, &nodes));
+        cluster.run_for(Duration::from_secs(2));
+        let old = cluster.leader().expect("a leader");
+        let aside = nodes.iter().map(|(id, _)| *id).find(|id| *id != old).unwrap();
+        cluster.stand_aside(aside, Duration::from_secs(60));
+        cluster.run_for(Duration::from_millis(200));
+        cluster.crash(old);
+        let new = cluster.run_until_leader_other_than(old, Duration::from_secs(5)).expect("a new leader");
+        assert_ne!(new, aside, "seed {seed}");
+    }
+}
