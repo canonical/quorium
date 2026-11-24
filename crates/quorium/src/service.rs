@@ -8,6 +8,8 @@ use openraft::async_runtime::watch::WatchReceiver;
 use openraft::error::{ClientWriteError, RaftError};
 use openraft::storage::Snapshot;
 use openraft_rt_tokio::TokioRuntime;
+use quorium_core::backoff::{Backoff, Throttle};
+use quorium_core::config::Timings;
 use quorium_core::driver::Ladder;
 use quorium_core::kv::Command;
 use quorium_core::types::NodeId;
@@ -48,10 +50,13 @@ pub(crate) struct Shard {
     pub(crate) ladder: Ladder<TokioRuntime>,
     pub(crate) activity: Mutex<Activity>,
     write_wait: std::time::Duration,
+    heartbeat: std::time::Duration,
+    nudges: Throttle,
+    epoch: Instant,
 }
 
 impl Shard {
-    pub(crate) fn new(id: u64, raft: NodeRaft, ladder: Ladder<TokioRuntime>, write_wait: std::time::Duration) -> Shard {
+    pub(crate) fn new(id: u64, raft: NodeRaft, ladder: Ladder<TokioRuntime>, timings: &Timings) -> Shard {
         let now = Instant::now();
         Shard {
             id,
@@ -67,7 +72,10 @@ impl Shard {
                 load_rate: 0,
                 samples: std::collections::VecDeque::with_capacity(LOAD_SAMPLES),
             }),
-            write_wait,
+            write_wait: timings.write_wait,
+            heartbeat: timings.heartbeat,
+            nudges: Throttle::new(timings.heartbeat / 2),
+            epoch: now,
         }
     }
 
@@ -80,6 +88,12 @@ impl Shard {
         if was_quiesced {
             self.raft.runtime_config().heartbeat(true);
             self.ladder.set_quiesced(false);
+            let _ = self.raft.trigger().heartbeat().await;
+        }
+    }
+
+    async fn nudge(&self) {
+        if self.nudges.permit(self.epoch.elapsed()) {
             let _ = self.raft.trigger().heartbeat().await;
         }
     }
@@ -134,10 +148,13 @@ fn failed(e: impl std::fmt::Display) -> Response {
     Response::Failed(e.to_string())
 }
 
+const LEASE_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
+
 pub(crate) async fn local_write(shard: &Shard, cmd: Command, origin: Option<String>) -> Response {
     shard.wake().await;
     let position = cmd.position();
     let deadline = Instant::now() + shard.write_wait;
+    let mut backoff = Backoff::new(LEASE_RETRY, shard.heartbeat.max(LEASE_RETRY));
     loop {
         match shard.raft.client_write(cmd.clone()).await {
             Ok(resp) if resp.data == quorium_core::kv::Reply::WrongShard => return Response::WrongShard,
@@ -148,8 +165,9 @@ pub(crate) async fn local_write(shard: &Shard, cmd: Command, origin: Option<Stri
             Err(RaftError::APIError(ClientWriteError::ForwardToLeader(f)))
                 if f.reason == openraft::error::ForwardReason::LeaseExpired && Instant::now() < deadline =>
             {
-                let _ = shard.raft.trigger().heartbeat().await;
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                shard.nudge().await;
+                let pause = backoff.next_delay().min(deadline.saturating_duration_since(Instant::now()));
+                tokio::time::sleep(pause).await;
             }
             Err(RaftError::APIError(ClientWriteError::ForwardToLeader(f))) => {
                 return Response::NotLeader { leader: f.leader_id, addr: f.leader_node.map(|n| n.addr) };

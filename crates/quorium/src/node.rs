@@ -162,7 +162,7 @@ impl Quorium {
             let dcs: BTreeMap<NodeId, String> = [(id, b.datacenter.clone())].into();
             let ladder =
                 Ladder::<TokioRuntime>::for_shard(ladder_config.clone(), id, dcs, Duration::from_millis(10), s);
-            shards.push(Arc::new(Shard::new(s, raft, ladder, timings.write_wait)));
+            shards.push(Arc::new(Shard::new(s, raft, ladder, &timings)));
         }
         let shards = Arc::new(shards);
         let peers: PeerBook = Arc::default();
