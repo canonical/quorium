@@ -230,7 +230,10 @@ pub struct TcpNetwork {
     appends: Arc<std::sync::atomic::AtomicU64>,
     rpc_floor: Duration,
     reachability: Reachability,
+    snapshots: SnapshotCounts,
 }
+
+type SnapshotCounts = Arc<Mutex<std::collections::BTreeMap<NodeId, u64>>>;
 
 #[derive(Clone, Default)]
 struct Reachability {
@@ -274,7 +277,12 @@ impl TcpNetwork {
             appends: Arc::default(),
             rpc_floor: DEFAULT_RPC_FLOOR,
             reachability: Reachability::default(),
+            snapshots: SnapshotCounts::default(),
         }
+    }
+
+    pub fn snapshots_sent(&self) -> std::collections::BTreeMap<NodeId, u64> {
+        self.snapshots.lock().unwrap().clone()
     }
 
     pub fn with_events(self, sink: EventSink) -> Self {
@@ -385,6 +393,7 @@ pub struct PeerConn {
     rpc_floor: Duration,
     target: NodeId,
     reachability: Reachability,
+    snapshots: SnapshotCounts,
 }
 
 fn rpc_error(e: RpcError) -> RPCError<ProdTypes> {
@@ -424,6 +433,7 @@ impl RaftNetworkFactory<ProdTypes> for TcpNetwork {
             rpc_floor: self.rpc_floor,
             target,
             reachability: self.reachability.clone(),
+            snapshots: self.snapshots.clone(),
         }
     }
 }
@@ -503,6 +513,7 @@ impl RaftNetworkV2<ProdTypes> for PeerConn {
         _cancel: impl Future<Output = ReplicationClosed> + Send + 'static,
         option: RPCOption,
     ) -> Result<SnapshotResponse<ProdTypes>, StreamingError<ProdTypes>> {
+        *self.snapshots.lock().unwrap().entry(self.target).or_default() += 1;
         let clients = self.clients.as_ref().map_err(|e| StreamingError::Unreachable(Unreachable::new(e)))?;
         let Snapshot { meta, snapshot } = snapshot;
         let request = Request::Snapshot { vote, meta, data: snapshot };
