@@ -8,7 +8,11 @@ A node that crashes while asking the cluster for a grant can lose track of that 
 
 ## Failover takes longer than half a second
 
-On real processes with fast disks and a 100 ms heartbeat, failover takes 577 ms at the median and 650 ms at the 99th percentile. Most of it is failure detection, which takes about three heartbeats. On slow network block storage, where an fsync takes 100 ms or more, failover can take several seconds.
+On real processes with fast disks and a 100 ms heartbeat, failover takes 577 ms at the median and 650 ms at the 99th percentile. Most of it is failure detection, which takes about three heartbeats. On slow network block storage, where an fsync takes 100 ms or more, failover can take several seconds. `failover_estimate()` assumes the measured round trip holds and the first campaign succeeds; when the surviving nodes are themselves stalled, failover takes longer than the estimate. Planned stops avoid failover entirely with `shutdown_gracefully`.
+
+## Stopping a node just after it started is slow
+
+A node stopped within about 10 seconds of starting can take up to 10 seconds to shut down. The delay matches the QUIC idle timeout; the cause is not yet known.
 
 ## The consensus engine is a pre-release
 

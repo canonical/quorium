@@ -4,7 +4,7 @@ A consensus system's bugs hide in rare interleavings: a crash between two writes
 
 ## 1. A formal model
 
-The election rules, including the Ladder, are specified in TLA+ (`spec/Ladder.tla`). The TLC model checker explores every reachable state of small clusters and checks that there is at most one leader per term, that committed entries are never lost, and that a leader is eventually elected.
+The election rules, including the Ladder, are specified in TLA+ (`spec/Ladder.tla`). The TLC model checker explores every reachable state of small clusters and checks that there is at most one leader per term, that committed entries are never lost, and that a leader is eventually elected, including while a node stands aside from elections before a planned stop.
 
 A model only proves the model. The next layer ties it to the code.
 
