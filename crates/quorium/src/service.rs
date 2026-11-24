@@ -351,6 +351,9 @@ impl RaftService for NodeService {
                     .install_full_snapshot(vote, Snapshot { meta, snapshot: data })
                     .await
                     .map_or_else(failed, Response::Snapshot),
+                Request::TransferLeader(r) if *r.to_node_id() == self.id && s.ladder.standing_aside() => {
+                    failed("this node is standing aside from leadership")
+                }
                 Request::TransferLeader(r) => {
                     s.raft.handle_transfer_leader(r).await.map_or_else(failed, Response::TransferLeader)
                 }
@@ -392,6 +395,12 @@ impl RaftService for NodeService {
                 }
                 Request::EscrowSettled { owner, name, units } => {
                     self.escrow.hold_for_peer(owner, name, units, true);
+                    Response::Recorded
+                }
+                Request::StandAside { for_ms } => {
+                    for shard in self.shards.iter() {
+                        shard.ladder.observe_stand_aside(from, std::time::Duration::from_millis(for_ms));
+                    }
                     Response::Recorded
                 }
                 Request::EscrowSold { owner, name, units, through } => {

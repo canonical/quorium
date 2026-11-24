@@ -67,3 +67,14 @@ fn wire_format_is_stable() {
         assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
     }
 }
+
+#[test]
+fn stand_aside_is_appended_without_a_format_change() {
+    let message = Message { from: 7, shard: 0, request: Request::StandAside { for_ms: 30_000 } };
+    let bytes = message.encode();
+    let envelope = quorium_net::codec::Envelope::decode(&bytes).unwrap();
+    assert_eq!(envelope.format, quorium_net::codec::FORMAT_VERSION);
+    assert_eq!(envelope.method, 17);
+    let decoded = Message::decode(&bytes).unwrap();
+    assert!(matches!(decoded.request, Request::StandAside { for_ms: 30_000 }));
+}

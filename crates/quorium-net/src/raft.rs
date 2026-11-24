@@ -84,6 +84,9 @@ pub enum Request {
         units: u64,
         through: u64,
     },
+    StandAside {
+        for_ms: u64,
+    },
 }
 
 impl Request {
@@ -105,6 +108,7 @@ impl Request {
             Request::ReadRouting => 14,
             Request::ReadLoad => 15,
             Request::EscrowSold { .. } => 16,
+            Request::StandAside { .. } => 17,
         }
     }
 }
