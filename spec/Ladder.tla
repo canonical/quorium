@@ -1,11 +1,11 @@
 ------------------------------- MODULE Ladder -------------------------------
 EXTENDS Naturals, FiniteSets, Sequences
 
-CONSTANTS Nodes, MaxTerm, MaxLog, MaxCrashes, LadderMode, DCOf(_)
+CONSTANTS Nodes, MaxTerm, MaxLog, MaxCrashes, MaxAsides, LadderMode, DCOf(_)
 
-VARIABLES term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed
+VARIABLES term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed, aside, asides
 
-vars == <<term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed>>
+vars == <<term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed, aside, asides>>
 
 Nil == 0
 
@@ -26,7 +26,7 @@ Ahead(a, b) ==
        /\ \/ Local(a) /\ ~Local(b)
           \/ Local(a) = Local(b) /\ a < b
 
-Rank(n) == Cardinality({m \in Nodes : m # n /\ up[m] /\ Ahead(m, n)})
+Rank(n) == Cardinality({m \in Nodes : m # n /\ up[m] /\ m \notin aside /\ Ahead(m, n)})
 
 LiveLeader(t) == \E m \in Nodes : up[m] /\ state[m] = "L" /\ term[m] >= t
 
@@ -41,13 +41,15 @@ Init ==
     /\ crashes = 0
     /\ lastLeader = Nil
     /\ committed = {}
+    /\ aside = {}
+    /\ asides = 0
 
 Timeout(n) ==
     /\ up[n]
     /\ ~quiet[n]
     /\ ~LiveLeader(term[n])
     /\ quiet' = [quiet EXCEPT ![n] = TRUE]
-    /\ UNCHANGED <<term, voted, state, log, votes, up, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<term, voted, state, log, votes, up, crashes, lastLeader, committed, aside, asides>>
 
 PreVoteGranted(n) ==
     Quorum({m \in Nodes : up[m] /\ (m = n \/ (quiet[m] /\ UpToDate(n, m)))})
@@ -57,13 +59,14 @@ Elect(n) ==
     /\ state[n] # "L"
     /\ quiet[n]
     /\ term[n] < MaxTerm
+    /\ LadderMode => n \notin aside
     /\ LadderMode => state[n] = "F" /\ Rank(n) = 0 /\ ~\E m \in Nodes : m # n /\ up[m] /\ state[m] = "C" /\ UpToDate(m, n)
     /\ PreVoteGranted(n)
     /\ term' = [term EXCEPT ![n] = term[n] + 1]
     /\ state' = [state EXCEPT ![n] = "C"]
     /\ voted' = [voted EXCEPT ![n] = n]
     /\ votes' = [votes EXCEPT ![n] = {n}]
-    /\ UNCHANGED <<log, up, quiet, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<log, up, quiet, crashes, lastLeader, committed, aside, asides>>
 
 CanGrant(n, m) ==
     /\ n # m
@@ -80,7 +83,7 @@ GrantVote(n, m) ==
     /\ voted' = [voted EXCEPT ![m] = n]
     /\ state' = [state EXCEPT ![m] = IF term[n] > term[m] THEN "F" ELSE state[m]]
     /\ votes' = [votes EXCEPT ![n] = votes[n] \cup {m}]
-    /\ UNCHANGED <<log, up, quiet, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<log, up, quiet, crashes, lastLeader, committed, aside, asides>>
 
 BecomeLeader(n) ==
     /\ up[n]
@@ -89,7 +92,7 @@ BecomeLeader(n) ==
     /\ state' = [state EXCEPT ![n] = "L"]
     /\ lastLeader' = n
     /\ log' = [log EXCEPT ![n] = IF Len(log[n]) < MaxLog THEN Append(log[n], term[n]) ELSE log[n]]
-    /\ UNCHANGED <<term, voted, votes, up, quiet, crashes, committed>>
+    /\ UNCHANGED <<term, voted, votes, up, quiet, crashes, committed, aside, asides>>
 
 Abandon(n) ==
     /\ up[n]
@@ -98,14 +101,14 @@ Abandon(n) ==
     /\ \A m \in Nodes : ~CanGrant(n, m)
     /\ state' = [state EXCEPT ![n] = "F"]
     /\ votes' = [votes EXCEPT ![n] = {}]
-    /\ UNCHANGED <<term, voted, log, up, quiet, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<term, voted, log, up, quiet, crashes, lastLeader, committed, aside, asides>>
 
 ClientWrite(n) ==
     /\ up[n]
     /\ state[n] = "L"
     /\ Len(log[n]) < MaxLog
     /\ log' = [log EXCEPT ![n] = Append(log[n], term[n])]
-    /\ UNCHANGED <<term, voted, state, votes, up, quiet, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<term, voted, state, votes, up, quiet, crashes, lastLeader, committed, aside, asides>>
 
 Replicate(n, m) ==
     /\ n # m
@@ -121,7 +124,7 @@ Replicate(n, m) ==
     /\ term' = [term EXCEPT ![m] = term[n]]
     /\ state' = [state EXCEPT ![m] = "F"]
     /\ quiet' = [quiet EXCEPT ![m] = FALSE]
-    /\ UNCHANGED <<votes, up, crashes, lastLeader, committed>>
+    /\ UNCHANGED <<votes, up, crashes, lastLeader, committed, aside, asides>>
 
 Crash(n) ==
     /\ up[n]
@@ -130,13 +133,27 @@ Crash(n) ==
     /\ state' = [state EXCEPT ![n] = "F"]
     /\ votes' = [votes EXCEPT ![n] = {}]
     /\ crashes' = crashes + 1
-    /\ UNCHANGED <<term, voted, log, quiet, lastLeader, committed>>
+    /\ UNCHANGED <<term, voted, log, quiet, lastLeader, committed, aside, asides>>
 
 Restart(n) ==
     /\ ~up[n]
     /\ up' = [up EXCEPT ![n] = TRUE]
     /\ quiet' = [quiet EXCEPT ![n] = FALSE]
-    /\ UNCHANGED <<term, voted, state, log, votes, crashes, lastLeader, committed>>
+    /\ aside' = aside \ {n}
+    /\ UNCHANGED <<term, voted, state, log, votes, crashes, lastLeader, committed, asides>>
+
+StandAside(n) ==
+    /\ up[n]
+    /\ n \notin aside
+    /\ asides < MaxAsides
+    /\ aside' = aside \cup {n}
+    /\ asides' = asides + 1
+    /\ UNCHANGED <<term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed>>
+
+EndAside(n) ==
+    /\ n \in aside
+    /\ aside' = aside \ {n}
+    /\ UNCHANGED <<term, voted, state, log, votes, up, quiet, crashes, lastLeader, committed, asides>>
 
 Prefix(l, i) == SubSeq(l, 1, i)
 
@@ -148,17 +165,18 @@ Commit(n) ==
         /\ Quorum({m \in Nodes : Len(log[m]) >= i /\ Prefix(log[m], i) = Prefix(log[n], i)})
         /\ committed' = committed \cup {<<j, log[n][j], term[n]>> : j \in 1..i}
         /\ committed' # committed
-    /\ UNCHANGED <<term, voted, state, log, votes, up, quiet, crashes, lastLeader>>
+    /\ UNCHANGED <<term, voted, state, log, votes, up, quiet, crashes, lastLeader, aside, asides>>
 
 Next ==
     \/ \E n \in Nodes :
         \/ Timeout(n) \/ Elect(n) \/ BecomeLeader(n) \/ ClientWrite(n) \/ Crash(n) \/ Restart(n) \/ Commit(n) \/ Abandon(n)
+        \/ StandAside(n) \/ EndAside(n)
     \/ \E n, m \in Nodes : GrantVote(n, m) \/ Replicate(n, m)
 
 Fairness ==
     /\ \A n \in Nodes :
         /\ WF_vars(Timeout(n)) /\ WF_vars(Elect(n)) /\ WF_vars(BecomeLeader(n))
-        /\ WF_vars(Restart(n)) /\ WF_vars(Abandon(n))
+        /\ WF_vars(Restart(n)) /\ WF_vars(Abandon(n)) /\ WF_vars(EndAside(n))
     /\ \A n, m \in Nodes : WF_vars(GrantVote(n, m)) /\ WF_vars(Replicate(n, m))
 
 Spec == Init /\ [][Next]_vars
@@ -172,6 +190,8 @@ TypeOK ==
     /\ votes \in [Nodes -> SUBSET Nodes]
     /\ up \in [Nodes -> BOOLEAN]
     /\ quiet \in [Nodes -> BOOLEAN]
+    /\ aside \subseteq Nodes
+    /\ asides \in 0..MaxAsides
 
 ElectionSafety ==
     \A a, b \in Nodes : state[a] = "L" /\ state[b] = "L" /\ term[a] = term[b] => a = b

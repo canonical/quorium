@@ -10,6 +10,7 @@ L == INSTANCE Ladder WITH
     MaxTerm <- 1000000000,
     MaxLog <- 1000000000,
     MaxCrashes <- 1000000000,
+    MaxAsides <- 0,
     LadderMode <- FALSE,
     DCOf <- LAMBDA n : 0,
     term <- S.term,
@@ -21,7 +22,9 @@ L == INSTANCE Ladder WITH
     quiet <- [n \in TraceNodes |-> FALSE],
     crashes <- 0,
     lastLeader <- 0,
-    committed <- S.committed
+    committed <- S.committed,
+    aside <- {},
+    asides <- 0
 
 Init == i = 1
 

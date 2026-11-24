@@ -138,6 +138,7 @@ jobs:
         run: |
           java -Xmx6g -cp ../tla2tools.jar tlc2.TLC -deadlock -workers auto -config MCSafety.cfg MCLadder.tla
           java -Xmx6g -cp ../tla2tools.jar tlc2.TLC -deadlock -workers auto -config MCLiveness.cfg MCLadder.tla
+          java -Xmx6g -cp ../tla2tools.jar tlc2.TLC -deadlock -workers auto -config MCAside.cfg MCLadder.tla
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --release -p quorium-sim --test conformance
