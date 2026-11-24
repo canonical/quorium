@@ -58,7 +58,7 @@ impl<E> From<ClientError> for Error<E> {
     fn from(e: ClientError) -> Self {
         match e {
             ClientError::Timeout => Error::Timeout,
-            ClientError::Unavailable(_) => Error::Unavailable,
+            ClientError::Unavailable(_) | ClientError::NoLeader { .. } => Error::Unavailable,
         }
     }
 }

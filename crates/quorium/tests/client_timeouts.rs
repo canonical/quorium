@@ -136,3 +136,45 @@ async fn a_client_that_saw_fast_replies_moves_on_from_a_silent_leader_quickly() 
     assert!(matches!(reply, Ok(Reply::Done)), "{reply:?}");
     assert!(started.elapsed() < Duration::from_millis(400), "{:?}", started.elapsed());
 }
+
+struct Leaderless;
+
+impl RaftService for Leaderless {
+    fn handle(&self, _from: u64, _shard: u64, _request: Request) -> ServiceFuture<'_> {
+        Box::pin(async move { Response::NotLeader { leader: None, addr: None } })
+    }
+}
+
+struct Broken;
+
+impl RaftService for Broken {
+    fn handle(&self, _from: u64, _shard: u64, _request: Request) -> ServiceFuture<'_> {
+        Box::pin(async move { Response::Failed("disk full".into()) })
+    }
+}
+
+#[tokio::test]
+async fn a_cluster_without_a_leader_is_reported_as_such() {
+    let server = serve("127.0.0.1:0".parse().unwrap(), None, Arc::new(Leaderless)).await.unwrap();
+    let client = Client::new(vec![server.local_addr()], None)
+        .with_transport(Transport::Tcp)
+        .with_timeouts(Duration::from_millis(800), Duration::from_millis(100));
+    match client.write("k", b"v".to_vec()).await {
+        Err(quorium::ClientError::NoLeader { for_at_least }) => {
+            assert!(for_at_least >= Duration::from_millis(500), "{for_at_least:?}")
+        }
+        other => panic!("expected NoLeader, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn other_failures_stay_unavailable() {
+    let server = serve("127.0.0.1:0".parse().unwrap(), None, Arc::new(Broken)).await.unwrap();
+    let client = Client::new(vec![server.local_addr()], None)
+        .with_transport(Transport::Tcp)
+        .with_timeouts(Duration::from_millis(500), Duration::from_millis(100));
+    match client.write("k", b"v".to_vec()).await {
+        Err(quorium::ClientError::Unavailable(reason)) => assert_eq!(reason, "disk full"),
+        other => panic!("expected Unavailable, got {other:?}"),
+    }
+}

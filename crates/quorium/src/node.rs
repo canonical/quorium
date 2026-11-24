@@ -23,6 +23,7 @@ use quorium_store::redb_state::StateDb;
 use quorium_store::wal_log::SharedWal;
 use tokio::task::JoinHandle;
 
+use crate::attempts::Attempts;
 use crate::builder::{Builder, StartError, node_id};
 use crate::discovery::Discovery;
 use crate::entity::{Key, State};
@@ -32,15 +33,24 @@ use crate::service::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ClientError {
     Unavailable(String),
+    NoLeader { for_at_least: Duration },
     Timeout,
+}
+
+impl ClientError {
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, ClientError::Unavailable(_) | ClientError::NoLeader { .. } | ClientError::Timeout)
+    }
 }
 
 impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ClientError::Unavailable(e) => write!(f, "cluster unavailable: {e}"),
+            ClientError::NoLeader { for_at_least } => write!(f, "no leader for at least {for_at_least:?}"),
             ClientError::Timeout => f.write_str("request timed out"),
         }
     }
@@ -630,22 +640,23 @@ impl Quorium {
         make: impl Fn() -> Request,
     ) -> Result<Response, ClientError> {
         let deadline = Instant::now() + self.inner.timeout;
-        let mut last = String::from("no leader");
+        let mut attempts = Attempts::new("no leader");
         while Instant::now() < deadline {
             let request = make();
             let s = target(&request);
             match self.send_to_group(s, request).await {
+                Response::NotLeader { leader: None, .. } => attempts.no_leader(),
                 Response::NotLeader { .. } => {}
                 Response::WrongShard => {
-                    last = String::from("routing changed");
+                    attempts.failed("routing changed");
                     self.refresh_routing().await;
                 }
-                Response::Failed(e) => last = e,
+                Response::Failed(e) => attempts.failed(e),
                 done => return Ok(done),
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        Err(ClientError::Unavailable(last))
+        Err(attempts.give_up())
     }
 
     pub(crate) async fn route(&self, make: impl Fn() -> Request) -> Result<Response, ClientError> {

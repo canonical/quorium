@@ -7,6 +7,7 @@ use quorium_core::kv::{Command, KvOp, Reply};
 use quorium_net::raft::{Request, Response, TcpNetwork};
 use quorium_net::tls::TlsConfig;
 
+use crate::attempts::Attempts;
 use crate::node::ClientError;
 
 const MAX_HEDGES: usize = 3;
@@ -93,14 +94,14 @@ impl Client {
 
     async fn route(&self, make: impl Fn() -> Request) -> Result<Response, ClientError> {
         let deadline = Instant::now() + self.timeout;
-        let mut last = String::from("no reachable node");
+        let mut attempts = Attempts::new("no reachable node");
         let mut inflight = tokio::task::JoinSet::new();
         let mut waiting = std::collections::HashSet::new();
         let mut next_attempt = Instant::now();
         loop {
             let now = Instant::now();
             if now >= deadline {
-                return Err(ClientError::Unavailable(last));
+                return Err(attempts.give_up());
             }
             if now >= next_attempt && inflight.len() < MAX_HEDGES {
                 if self.seeds.is_empty() {
@@ -135,13 +136,16 @@ impl Client {
                     *self.leader.lock().unwrap() = Some(leader);
                     next_attempt = Instant::now();
                 }
-                Ok(Response::NotLeader { .. }) => {
+                Ok(Response::NotLeader { leader, .. }) => {
+                    if leader.is_none() {
+                        attempts.no_leader();
+                    }
                     *self.leader.lock().unwrap() = None;
                     next_attempt = Instant::now() + RETRY_PAUSE;
                 }
                 Ok(Response::Failed(e)) => {
                     *self.leader.lock().unwrap() = None;
-                    last = e;
+                    attempts.failed(e);
                     next_attempt = Instant::now() + RETRY_PAUSE;
                 }
                 Ok(done) => {
@@ -151,7 +155,7 @@ impl Client {
                 }
                 Err(e) => {
                     *self.leader.lock().unwrap() = None;
-                    last = e.to_string();
+                    attempts.failed(e.to_string());
                     next_attempt = next_attempt.min(Instant::now() + RETRY_PAUSE);
                 }
             }
