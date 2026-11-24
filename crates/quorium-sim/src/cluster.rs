@@ -16,6 +16,7 @@ use openraft::raft::{
 use openraft::{AsyncRuntime, Config, Raft, ReadPolicy, ServerState};
 use quorium_core::config::{TimingConfig, TimingError, Timings};
 use quorium_core::driver::Ladder;
+use quorium_core::events::LeadershipEvent;
 use quorium_core::kv::{Command, KvOp, Reply};
 use quorium_core::types::{NodeId, Types};
 use quorium_store::mem::{KvStateMachine, MemLog, MemSnapshotStore};
@@ -117,6 +118,7 @@ struct NodeEntry {
 
 #[derive(Default)]
 struct Checks {
+    events: Vec<(NodeId, Duration, LeadershipEvent)>,
     election: ElectionSafety,
     state_machine: StateMachineSafety,
     histories: BTreeMap<String, History<Register>>,
@@ -513,7 +515,11 @@ impl SimCluster {
         }));
         let factory = NetFactory { from: id, router: self.router.clone(), timings: self.timings.clone() };
         let config = self.raft_config.clone();
-        let ladder = Ladder::<SimRuntime>::new(self.timings.ladder.clone(), id, self.datacenters(), self.config.tick);
+        let log = self.checks.clone();
+        let ladder = Ladder::<SimRuntime>::new(self.timings.ladder.clone(), id, self.datacenters(), self.config.tick)
+            .with_events(Arc::new(move |event| {
+                log.lock().unwrap().events.push((id, now_micros_duration(), event));
+            }));
         let started = match &self.logs[&id] {
             NodeStore::Mem(log) => {
                 let log = log.clone();
@@ -713,6 +719,20 @@ impl SimCluster {
                 })
             })
             .collect()
+    }
+
+    pub fn leadership_events(&self) -> Vec<(NodeId, Duration, LeadershipEvent)> {
+        self.checks.lock().unwrap().events.clone()
+    }
+
+    pub fn elections_started_since(&self, since: Duration) -> usize {
+        self.checks
+            .lock()
+            .unwrap()
+            .events
+            .iter()
+            .filter(|(_, at, e)| *at >= since && matches!(e, LeadershipEvent::ElectionStarted { .. }))
+            .count()
     }
 
     pub fn snapshots_built(&self) -> u64 {

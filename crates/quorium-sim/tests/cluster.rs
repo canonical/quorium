@@ -174,3 +174,20 @@ fn skewed_node_clocks_change_how_often_they_act() {
     assert!(drifts.iter().any(|d| *d != 0), "{drifts:?}");
     assert_ne!(steady, skewed, "drift had no effect on the heartbeat traffic");
 }
+
+#[test]
+fn leadership_events_record_a_failover() {
+    let mut c = SimCluster::new(ClusterConfig::new(3, &[(1, "a"), (2, "b"), (3, "c")]));
+    c.run_for(Duration::from_secs(2));
+    let old = c.leader().expect("a leader");
+    let crashed_at = c.now();
+    assert_eq!(c.elections_started_since(crashed_at), 0);
+    c.crash(old);
+    let new = c.run_until_leader_other_than(old, Duration::from_secs(5)).expect("a new leader");
+    c.run_for(Duration::from_millis(50));
+    assert!(c.elections_started_since(crashed_at) >= 1);
+    let events = c.leadership_events();
+    assert!(events.iter().any(|(node, at, e)| *node == new
+        && *at >= crashed_at
+        && matches!(e, quorium_core::events::LeadershipEvent::LeaderChanged { leader: Some(l), .. } if *l == new)));
+}
