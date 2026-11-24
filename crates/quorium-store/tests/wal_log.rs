@@ -104,6 +104,23 @@ fn unflushed_appends_do_not_survive_a_crash() {
 }
 
 #[test]
+fn a_synced_close_keeps_unflushed_appends() {
+    TokioRuntime::run(async {
+        let wal = SharedWal::<TokioRuntime, MemDisk>::open(MemDisk::default()).unwrap();
+        wal.pause_flushing(true);
+        let mut a = wal.shard(1);
+        a.append(vec![blank(1, 1)], IOFlushed::noop()).await.unwrap();
+        a.save_committed(Some(LogId::new(CommittedLeaderId::new(1), 1))).await.unwrap();
+        let disk = wal.close_synced().await.unwrap().expect("the wal was open");
+        assert!(wal.close_synced().await.unwrap().is_none());
+        let wal = SharedWal::<TokioRuntime, MemDisk>::open(disk.crash()).unwrap();
+        let mut a = wal.shard(1);
+        assert_eq!(a.get_log_state().await.unwrap().last_log_id.map(|l| l.index), Some(1));
+        assert!(a.read_committed().await.unwrap().is_some());
+    });
+}
+
+#[test]
 fn corrupt_wal_refuses_to_open() {
     let wal = SharedWal::<TokioRuntime, MemDisk>::open(MemDisk::default()).unwrap();
     TokioRuntime::run(async {

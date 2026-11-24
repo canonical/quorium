@@ -286,6 +286,18 @@ impl<RT: AsyncRuntime, D: Disk> SharedWal<RT, D> {
         self.locked().wal.take().map(Wal::into_disk)
     }
 
+    pub async fn close_synced(&self) -> io::Result<Option<D>> {
+        if self.inner.lock().await.wal.is_none() {
+            return Ok(None);
+        }
+        let inner = self.inner.clone();
+        let synced = RT::spawn_blocking(move || sync_unlocked(&inner))
+            .await
+            .unwrap_or_else(|e| Err(io::Error::other(e.to_string())));
+        let disk = self.inner.lock().await.wal.take().map(Wal::into_disk);
+        synced.map(|()| disk)
+    }
+
     fn spawn_flusher(&self) {
         let inner = self.inner.clone();
         drop(RT::spawn(async move {
